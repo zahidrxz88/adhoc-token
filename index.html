@@ -33,71 +33,34 @@
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.9/babel.min.js"></script>
 
 <script type="text/babel" data-presets="react">
 const { useState, useEffect, useMemo, useRef } = React;
 
-// ============ SUPABASE CONFIG (shared project, dedicated keys for this app) ============
-const SUPABASE_URL = "https://aoaigepwbskasvzptjaz.supabase.co";
-const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFvYWlnZXB3YnNrYXN2enB0amF6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQxMDU4NTcsImV4cCI6MjA5OTY4MTg1N30.wUesp90JZF-N8Z2t6y7XSS47vrlcpMTvWlX9AhTIwZc";
+// ============ SUPABASE CONFIG (this app's own dedicated project) ============
+const SUPABASE_URL = "https://jkwakavosclpnbtyyltx.supabase.co";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imprd2FrYXZvc2NscG5idHl5bHR4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODk4NDcwMDcsImV4cCI6MjEwNTQyMzAwN30.NNgTpapEFBInQRaekXCN34HIN0UkGTW7oznn2PoVkH0";
+const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
+// kvGet/kvSet ride on the current Supabase Auth session automatically -- no session, no access (kv_store RLS requires authenticated)
 async function kvGet(key) {
-  const res = await fetch(`${SUPABASE_URL}/rest/v1/kv_store?key=eq.${key}&select=value`, {
-    headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` }
-  });
-  if (!res.ok) throw new Error("kvGet failed: " + res.status);
-  const data = await res.json();
-  return data && data[0] ? data[0].value : null;
+  const { data, error } = await supabase.from("kv_store").select("value").eq("key", key).maybeSingle();
+  if (error) throw error;
+  return data ? data.value : null;
 }
 async function kvSet(key, value) {
-  const res = await fetch(`${SUPABASE_URL}/rest/v1/kv_store?on_conflict=key`, {
-    method: "POST",
-    headers: {
-      apikey: SUPABASE_ANON_KEY,
-      Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-      "Content-Type": "application/json",
-      Prefer: "resolution=merge-duplicates"
-    },
-    body: JSON.stringify([{ key, value, updated_at: new Date().toISOString() }])
-  });
-  if (!res.ok) throw new Error("kvSet failed: " + res.status);
-}
-async function checkSuperCode(inputCode) {
-  const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/check_super_code`, {
-    method: "POST",
-    headers: {
-      apikey: SUPABASE_ANON_KEY,
-      Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({ input_code: inputCode })
-  });
-  if (!res.ok) throw new Error("checkSuperCode failed: " + res.status);
-  return res.json();
-}
-async function setSuperCodeRemote(oldCode, newCode) {
-  const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/set_super_code`, {
-    method: "POST",
-    headers: {
-      apikey: SUPABASE_ANON_KEY,
-      Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({ old_code: oldCode, new_code: newCode })
-  });
-  if (!res.ok) throw new Error("setSuperCodeRemote failed: " + res.status);
-  return res.json();
+  const { error } = await supabase.from("kv_store").upsert({ key, value, updated_at: new Date().toISOString() });
+  if (error) throw error;
 }
 
 // dedicated keys so this app never collides with any other tracker on the same project
 const KV_REQUESTS = "adhoc_token_requests";
 const KV_RATE_CARD = "adhoc_token_rate_card";
 const KV_CLIENTS = "adhoc_token_clients";
-const KV_USERS = "adhoc_token_users";
 const KV_PRESENCE = "adhoc_token_presence";
 const KV_ACTIVITY = "adhoc_token_activity";
-const LS_USER_ID = "adhoc_token_user_id";
 
 // ============ tiny icon set ============
 function Icon({ size = 16, color = "currentColor", children }) {
@@ -232,6 +195,9 @@ function initials(first, last) {
 function fullName(u) {
   return u ? `${u.firstName} ${u.lastName}`.trim() : "";
 }
+function mapProfile(p) {
+  return { id: p.id, firstName: p.first_name || "", lastName: p.last_name || "", role: p.role, email: p.email };
+}
 function fmtDateTime(iso) {
   return new Date(iso).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 }
@@ -262,38 +228,30 @@ function Dashboard() {
   const [topUpAmount, setTopUpAmount] = useState("");
   const [topUpError, setTopUpError] = useState("");
 
-  // ---- auth / users / presence / activity ----
+  // ---- auth (real Supabase Auth) / users / presence / activity ----
+  const [session, setSession] = useState(null);
+  const [authReady, setAuthReady] = useState(false);
   const [users, setUsers] = useState([]);
   const [presence, setPresence] = useState({});
   const [activity, setActivity] = useState([]);
-  const [superAdminCode, setSuperAdminCode] = useState(null);
-  const [currentUserId, setCurrentUserId] = useState(null);
-  const [authTab, setAuthTab] = useState("login");
-  const [loginFirst, setLoginFirst] = useState("");
-  const [loginLast, setLoginLast] = useState("");
-  const [loginPin, setLoginPin] = useState("");
-  const [loginError, setLoginError] = useState("");
-  const [regFirst, setRegFirst] = useState("");
-  const [regLast, setRegLast] = useState("");
-  const [regPin, setRegPin] = useState("");
-  const [regError, setRegError] = useState("");
-  const [saFirst, setSaFirst] = useState("");
-  const [saLast, setSaLast] = useState("");
-  const [saCode, setSaCode] = useState("");
-  const [saError, setSaError] = useState("");
+  const [authMode, setAuthMode] = useState("login");
+  const [authFirst, setAuthFirst] = useState("");
+  const [authLast, setAuthLast] = useState("");
+  const [authEmail, setAuthEmail] = useState("");
+  const [authPassword, setAuthPassword] = useState("");
+  const [authError, setAuthError] = useState("");
+  const [authNotice, setAuthNotice] = useState("");
+  const [authBusy, setAuthBusy] = useState(false);
   const [manageUsersOpen, setManageUsersOpen] = useState(false);
   const [activityLogOpen, setActivityLogOpen] = useState(false);
-  const [newSuperCode, setNewSuperCode] = useState("");
-  const [superCodeError, setSuperCodeError] = useState("");
   const [presenceTapped, setPresenceTapped] = useState(null);
 
+  const currentUserId = session ? session.user.id : null;
   const currentUser = users.find(u => u.id === currentUserId) || null;
   const role = currentUser ? currentUser.role : null;
   const isSuperAdmin = role === "superadmin";
   const isAdmin = role === "admin" || isSuperAdmin;
   const isUser = !!currentUser; // any logged-in, registered person can view the dashboard
-  const isLoggedIn = !!currentUser;
-  const superAdminExists = users.some(u => u.role === "superadmin");
   const [confirmDelete, setConfirmDelete] = useState(null);
   const lastSyncedRef = useRef("");
   const lastRateSyncedRef = useRef("");
@@ -301,9 +259,27 @@ function Dashboard() {
   const lastUsersSyncedRef = useRef("");
   const lastActivitySyncedRef = useRef("");
   const lastPresenceSyncedRef = useRef("");
+  const loggedInOnceRef = useRef(false);
 
-  // load
+  // establish and track the Supabase Auth session
   useEffect(() => {
+    supabase.auth.getSession().then(({ data }) => {
+      setSession(data.session);
+      setAuthReady(true);
+    });
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, newSession) => {
+      setSession(newSession);
+    });
+    return () => sub.subscription.unsubscribe();
+  }, []);
+
+  // load app data once we have a session; clear it back out on logout
+  useEffect(() => {
+    if (!session) {
+      setLoaded(false);
+      loggedInOnceRef.current = false;
+      return;
+    }
     (async () => {
       try {
         const remote = await kvGet(KV_REQUESTS);
@@ -320,9 +296,13 @@ function Dashboard() {
           lastClientsSyncedRef.current = JSON.stringify(remoteClients);
         }
       } catch (e) { console.error("load clients failed", e); }
+      let mappedUsers = [];
       try {
-        const remoteUsers = await kvGet(KV_USERS);
-        if (remoteUsers) { setUsers(remoteUsers); lastUsersSyncedRef.current = JSON.stringify(remoteUsers); }
+        const { data, error } = await supabase.from("profiles").select("*");
+        if (error) throw error;
+        mappedUsers = (data || []).map(mapProfile);
+        setUsers(mappedUsers);
+        lastUsersSyncedRef.current = JSON.stringify(mappedUsers);
       } catch (e) { console.error("load users failed", e); }
       try {
         const remoteActivity = await kvGet(KV_ACTIVITY);
@@ -332,20 +312,14 @@ function Dashboard() {
         const remotePresence = await kvGet(KV_PRESENCE);
         if (remotePresence) { setPresence(remotePresence); lastPresenceSyncedRef.current = JSON.stringify(remotePresence); }
       } catch (e) { console.error("load presence failed", e); }
-      try {
-        const uidStored = localStorage.getItem(LS_USER_ID);
-        if (uidStored) setCurrentUserId(uidStored);
-      } catch (e) {}
       setLoaded(true);
+      if (!loggedInOnceRef.current) {
+        loggedInOnceRef.current = true;
+        const me = mappedUsers.find(u => u.id === session.user.id);
+        if (me) logActivityFor(me, "login", `${fullName(me)} logged in`);
+      }
     })();
-  }, []);
-  useEffect(() => {
-    if (!loaded) return;
-    try {
-      if (currentUserId) localStorage.setItem(LS_USER_ID, currentUserId);
-      else localStorage.removeItem(LS_USER_ID);
-    } catch (e) {}
-  }, [currentUserId, loaded]);
+  }, [session]);
 
   // save requests
   useEffect(() => {
@@ -379,17 +353,6 @@ function Dashboard() {
       } catch (e) { console.error("save clients failed", e); }
     })();
   }, [clientsList, loaded]);
-
-  // save users
-  useEffect(() => {
-    if (!loaded) return;
-    (async () => {
-      try {
-        await kvSet(KV_USERS, users);
-        lastUsersSyncedRef.current = JSON.stringify(users);
-      } catch (e) { console.error("save users failed", e); }
-    })();
-  }, [users, loaded]);
 
   // save activity (capped)
   useEffect(() => {
@@ -460,13 +423,13 @@ function Dashboard() {
         }
       } catch (e) {}
       try {
-        const remoteUsers = await kvGet(KV_USERS);
-        const remoteUsersJson = remoteUsers ? JSON.stringify(remoteUsers) : "";
-        if (remoteUsersJson && remoteUsersJson !== lastUsersSyncedRef.current) {
-          lastUsersSyncedRef.current = remoteUsersJson;
-          setUsers(remoteUsers);
-          // if our account was removed by a super admin elsewhere, sign us out
-          setCurrentUserId(cid => (cid && remoteUsers && !remoteUsers.some(u => u.id === cid)) ? null : cid);
+        const { data, error } = await supabase.from("profiles").select("*");
+        if (error) throw error;
+        const mapped = (data || []).map(mapProfile);
+        const mappedJson = JSON.stringify(mapped);
+        if (mappedJson !== lastUsersSyncedRef.current) {
+          lastUsersSyncedRef.current = mappedJson;
+          setUsers(mapped);
         }
       } catch (e) {}
       try {
@@ -498,11 +461,8 @@ function Dashboard() {
     });
   };
 
-  const nameTaken = (first, last, excludeId) =>
-    users.some(u => u.id !== excludeId && u.firstName.trim().toLowerCase() === first.trim().toLowerCase() && u.lastName.trim().toLowerCase() === last.trim().toLowerCase());
-
   // logActivity needs the *new* user before React state updates flow through,
-  // so registration/login paths use this variant with an explicit user object
+  // so the post-login path uses this variant with an explicit user object
   const logActivityFor = (user, action, detail) => {
     setActivity(a => {
       const entry = { id: uid(), ts: new Date().toISOString(), userId: user.id, name: fullName(user), role: user.role, action, detail };
@@ -511,91 +471,52 @@ function Dashboard() {
     });
   };
 
-  const submitRegister = () => {
-    setRegError("");
-    if (!regFirst.trim() || !regLast.trim()) { setRegError("Please enter your first and last name."); return; }
-    if (!regPin.trim() || regPin.length < 6) { setRegError("Choose a password of at least 6 characters."); return; }
-    if (nameTaken(regFirst, regLast)) { setRegError("That name is already registered — try logging in instead."); return; }
-    const newUser = { id: uid(), firstName: regFirst.trim(), lastName: regLast.trim(), pin: regPin, role: "guest" };
-    setUsers(us => [...us, newUser]);
-    setCurrentUserId(newUser.id);
-    setRegFirst(""); setRegLast(""); setRegPin("");
-    logActivityFor(newUser, "register", `${fullName(newUser)} registered`);
-  };
-  const submitLogin = () => {
-    setLoginError("");
-    const match = users.find(u =>
-      u.firstName.trim().toLowerCase() === loginFirst.trim().toLowerCase() &&
-      u.lastName.trim().toLowerCase() === loginLast.trim().toLowerCase() &&
-      u.pin === loginPin
-    );
-    if (!match) { setLoginError("Name or password not recognized."); return; }
-    setCurrentUserId(match.id);
-    setLoginFirst(""); setLoginLast(""); setLoginPin("");
-    logActivityFor(match, "login", `${fullName(match)} logged in`);
-  };
-  const submitSuperAdmin = async () => {
-    setSaError("");
-    let valid = false;
+  const submitAuth = async () => {
+    setAuthError("");
+    setAuthNotice("");
+    if (!authEmail.trim() || !authPassword.trim()) { setAuthError("Enter your email and password."); return; }
+    setAuthBusy(true);
     try {
-      valid = await checkSuperCode(saCode);
-    } catch (e) {
-      setSaError("Could not verify code. Try again.");
-      return;
+      if (authMode === "register") {
+        if (!authFirst.trim() || !authLast.trim()) { setAuthError("Please enter your first and last name."); return; }
+        if (authPassword.length < 6) { setAuthError("Choose a password of at least 6 characters."); return; }
+        const { error } = await supabase.auth.signUp({
+          email: authEmail.trim(),
+          password: authPassword,
+          options: { data: { first_name: authFirst.trim(), last_name: authLast.trim() } }
+        });
+        if (error) { setAuthError(error.message); return; }
+        setAuthNotice("Check your email to confirm your account, then log in.");
+        setAuthMode("login");
+        setAuthPassword("");
+      } else {
+        const { error } = await supabase.auth.signInWithPassword({ email: authEmail.trim(), password: authPassword });
+        if (error) { setAuthError(error.message); return; }
+        setAuthPassword("");
+      }
+    } finally {
+      setAuthBusy(false);
     }
-    if (!valid) { setSaError("Incorrect access code."); return; }
-    setSuperAdminCode(saCode);
-    const existing = users.find(u => u.role === "superadmin");
-    if (existing) {
-      setCurrentUserId(existing.id);
-      logActivityFor(existing, "login", `${fullName(existing)} logged in as Super Admin`);
-      setSaCode("");
-      return;
-    }
-    if (!saFirst.trim() || !saLast.trim()) { setSaError("Enter your first and last name to claim Super Admin."); return; }
-    const su = { id: uid(), firstName: saFirst.trim(), lastName: saLast.trim(), pin: "", role: "superadmin" };
-    setUsers(us => [...us, su]);
-    setCurrentUserId(su.id);
-    setSaFirst(""); setSaLast(""); setSaCode("");
-    logActivityFor(su, "register", `${fullName(su)} claimed Super Admin`);
   };
-  const logout = () => {
+  const logout = async () => {
     if (currentUser) logActivity("logout", `${fullName(currentUser)} logged out`);
-    (async () => {
-      try {
-        const remote = (await kvGet(KV_PRESENCE)) || {};
-        if (currentUserId) delete remote[currentUserId];
-        await kvSet(KV_PRESENCE, remote);
-        setPresence(remote);
-      } catch (e) {}
-    })();
-    setCurrentUserId(null);
-  };
-  const setUserRole = (userId, newRole) => {
-    if (!isSuperAdmin) return;
-    const target = users.find(u => u.id === userId);
-    setUsers(us => us.map(u => u.id === userId ? { ...u, role: newRole } : u));
-    if (target) logActivity("role-change", `Set ${fullName(target)} to ${ROLE_LABEL[newRole]}`);
-  };
-  const removeUser = userId => {
-    if (!isSuperAdmin) return;
-    const target = users.find(u => u.id === userId);
-    setUsers(us => us.filter(u => u.id !== userId));
-    if (target) logActivity("remove-user", `Removed ${fullName(target)}`);
-  };
-  const saveSuperCode = async () => {
-    if (!isSuperAdmin) return;
-    if (!newSuperCode.trim() || newSuperCode.length < 6) { setSuperCodeError("Access code must be at least 6 characters."); return; }
     try {
-      const ok = await setSuperCodeRemote(superAdminCode, newSuperCode);
-      if (!ok) { setSuperCodeError("Could not verify current access code. Log out and back in, then try again."); return; }
-      setSuperAdminCode(newSuperCode);
-      logActivity("super-code-change", "Super Admin access code changed");
-      setNewSuperCode("");
-      setSuperCodeError("");
-    } catch (e) {
-      setSuperCodeError("Failed to save access code.");
-    }
+      const remote = (await kvGet(KV_PRESENCE)) || {};
+      if (currentUserId) delete remote[currentUserId];
+      await kvSet(KV_PRESENCE, remote);
+      setPresence(remote);
+    } catch (e) {}
+    await supabase.auth.signOut();
+  };
+  const setUserRole = async (userId, newRole) => {
+    if (!isSuperAdmin) return;
+    const target = users.find(u => u.id === userId);
+    try {
+      const { data, error } = await supabase.rpc("set_user_role", { target_id: userId, new_role: newRole });
+      if (error || !data) return;
+      setUsers(us => us.map(u => u.id === userId ? { ...u, role: newRole } : u));
+      if (target) logActivity("role-change", `Set ${fullName(target)} to ${ROLE_LABEL[newRole]}`);
+    } catch (e) {}
   };
 
   const openAdd = () => {
@@ -878,6 +799,14 @@ function Dashboard() {
       .sort((a, b) => fullName(a).localeCompare(fullName(b)));
   }, [presence]);
 
+  if (!authReady) {
+    return (
+      <div style={{ minHeight: "100vh", background: "#0B0E0C", display: "flex", alignItems: "center", justifyContent: "center", color: "#8B948E", fontFamily: "'Space Grotesk', sans-serif" }}>
+        Loading…
+      </div>
+    );
+  }
+
   if (!currentUser) {
     return (
       <div style={{ minHeight: "100vh", background: "#0B0E0C", display: "flex", alignItems: "center", justifyContent: "center", padding: 20, color: "#E8ECE9", fontFamily: "'Space Grotesk', sans-serif" }}>
@@ -886,54 +815,45 @@ function Dashboard() {
           <div className="mono" style={{ fontSize: 10.5, letterSpacing: 1.5, color: "#8B948E", marginBottom: 22 }}>GLOBAL VISION MULTIMEDIA · A RICOH COMPANY</div>
 
           <div style={{ display: "flex", gap: 6, marginBottom: 18 }}>
-            {[["login", "Log In"], ["register", "Register"], ["superadmin", "Super Admin"]].map(([tab, label]) => (
-              <button key={tab} type="button" className="type-btn" onClick={() => setAuthTab(tab)}
+            {[["login", "Log In"], ["register", "Register"]].map(([tab, label]) => (
+              <button key={tab} type="button" className="type-btn" onClick={() => { setAuthMode(tab); setAuthError(""); setAuthNotice(""); }}
                 style={{
                   flex: 1, padding: "10px 4px", borderRadius: 7, fontWeight: 600, fontSize: 12.5,
-                  border: authTab === tab ? "1px solid #4ADE9C" : "1px solid #262B27",
-                  background: authTab === tab ? "#4ADE9C22" : "transparent",
-                  color: authTab === tab ? "#4ADE9C" : "#8B948E"
+                  border: authMode === tab ? "1px solid #4ADE9C" : "1px solid #262B27",
+                  background: authMode === tab ? "#4ADE9C22" : "transparent",
+                  color: authMode === tab ? "#4ADE9C" : "#8B948E"
                 }}>{label}</button>
             ))}
           </div>
 
-          {authTab === "login" && (
-            <div style={{ display: "grid", gap: 12 }}>
-              <Field label="First name"><TextInput value={loginFirst} onChange={setLoginFirst} placeholder="JANE" uppercase /></Field>
-              <Field label="Last name"><TextInput value={loginLast} onChange={setLoginLast} placeholder="DOE" uppercase /></Field>
-              <Field label="Your password"><input type="password" value={loginPin} onChange={e => setLoginPin(e.target.value)} onKeyDown={e => e.key === "Enter" && submitLogin()} style={inputStyle} /></Field>
-              {loginError && <div style={{ color: "#F2545B", fontSize: 12 }}>{loginError}</div>}
-              <button onClick={submitLogin} style={{ background: "#4ADE9C", color: "#0B0E0C", border: "none", borderRadius: 8, padding: "11px 0", fontWeight: 600, fontSize: 14 }}>Log In</button>
-            </div>
-          )}
-
-          {authTab === "register" && (
-            <div style={{ display: "grid", gap: 12 }}>
-              <Field label="First name"><TextInput value={regFirst} onChange={setRegFirst} placeholder="JANE" uppercase /></Field>
-              <Field label="Last name"><TextInput value={regLast} onChange={setRegLast} placeholder="DOE" uppercase /></Field>
-              <Field label="Choose a password"><input type="password" value={regPin} onChange={e => setRegPin(e.target.value)} onKeyDown={e => e.key === "Enter" && submitRegister()} placeholder="Min 6 characters" style={inputStyle} /></Field>
-              <div className="mono" style={{ fontSize: 10.5, color: "#8B948E" }}>New accounts start as Guest (view only) until a Super Admin promotes you.</div>
-              {regError && <div style={{ color: "#F2545B", fontSize: 12 }}>{regError}</div>}
-              <button onClick={submitRegister} style={{ background: "#4ADE9C", color: "#0B0E0C", border: "none", borderRadius: 8, padding: "11px 0", fontWeight: 600, fontSize: 14 }}>Register</button>
-            </div>
-          )}
-
-          {authTab === "superadmin" && (
-            <div style={{ display: "grid", gap: 12 }}>
-              {!superAdminExists && (
-                <React.Fragment>
-                  <Field label="First name"><TextInput value={saFirst} onChange={setSaFirst} placeholder="JANE" uppercase /></Field>
-                  <Field label="Last name"><TextInput value={saLast} onChange={setSaLast} placeholder="DOE" uppercase /></Field>
-                  <div className="mono" style={{ fontSize: 10.5, color: "#8B948E" }}>No Super Admin exists yet — the correct access code claims the role permanently for this name.</div>
-                </React.Fragment>
-              )}
-              <Field label="Access code"><input type="password" value={saCode} onChange={e => setSaCode(e.target.value)} onKeyDown={e => e.key === "Enter" && submitSuperAdmin()} style={inputStyle} /></Field>
-              {saError && <div style={{ color: "#F2545B", fontSize: 12 }}>{saError}</div>}
-              <button onClick={submitSuperAdmin} style={{ background: "#4ADE9C", color: "#0B0E0C", border: "none", borderRadius: 8, padding: "11px 0", fontWeight: 600, fontSize: 14 }}>
-                {superAdminExists ? "Log In" : "Claim Super Admin"}
-              </button>
-            </div>
-          )}
+          <div style={{ display: "grid", gap: 12 }}>
+            {authMode === "register" && (
+              <React.Fragment>
+                <Field label="First name"><TextInput value={authFirst} onChange={setAuthFirst} placeholder="JANE" uppercase /></Field>
+                <Field label="Last name"><TextInput value={authLast} onChange={setAuthLast} placeholder="DOE" uppercase /></Field>
+              </React.Fragment>
+            )}
+            <Field label="Email">
+              <input type="email" value={authEmail} onChange={e => setAuthEmail(e.target.value)}
+                onKeyDown={e => e.key === "Enter" && submitAuth()} placeholder="you@example.com" style={inputStyle} />
+            </Field>
+            <Field label={authMode === "register" ? "Choose a password" : "Password"}>
+              <input type="password" value={authPassword} onChange={e => setAuthPassword(e.target.value)}
+                onKeyDown={e => e.key === "Enter" && submitAuth()}
+                placeholder={authMode === "register" ? "Min 6 characters" : ""} style={inputStyle} />
+            </Field>
+            {authMode === "register" && (
+              <div className="mono" style={{ fontSize: 10.5, color: "#8B948E" }}>
+                New accounts start as Guest (view only) until an Admin promotes you.
+              </div>
+            )}
+            {authError && <div style={{ color: "#F2545B", fontSize: 12 }}>{authError}</div>}
+            {authNotice && <div style={{ color: "#4ADE9C", fontSize: 12 }}>{authNotice}</div>}
+            <button onClick={submitAuth} disabled={authBusy}
+              style={{ background: "#4ADE9C", color: "#0B0E0C", border: "none", borderRadius: 8, padding: "11px 0", fontWeight: 600, fontSize: 14, opacity: authBusy ? 0.6 : 1 }}>
+              {authBusy ? "Please wait…" : authMode === "register" ? "Register" : "Log In"}
+            </button>
+          </div>
         </div>
       </div>
     );
@@ -1233,22 +1153,11 @@ function Dashboard() {
                     {u.role !== "guest" && (
                       <button onClick={() => setUserRole(u.id, "guest")} style={{ background: "transparent", border: "1px solid #262B27", borderRadius: 6, padding: "6px 10px", color: "#8B948E", fontSize: 11.5, fontWeight: 600 }}>Make Guest</button>
                     )}
-                    <IconBtn onClick={() => removeUser(u.id)}><Trash2 size={13} /></IconBtn>
                   </div>
                 </div>
               ))}
             </div>
           )}
-
-          <div style={{ marginTop: 20, paddingTop: 16, borderTop: "1px solid #1E2320" }}>
-            <div className="mono" style={{ fontSize: 11, color: "#8B948E", marginBottom: 8, letterSpacing: 0.5 }}>SUPER ADMIN ACCESS CODE</div>
-            <div style={{ display: "flex", gap: 8 }}>
-              <input type="password" value={newSuperCode} onChange={e => { setNewSuperCode(e.target.value); setSuperCodeError(""); }}
-                placeholder="New access code (min 6 characters)" style={{ ...inputStyle, flex: 1 }} />
-              <button onClick={saveSuperCode} style={{ background: "#4ADE9C", color: "#0B0E0C", border: "none", borderRadius: 8, padding: "0 16px", fontWeight: 600, fontSize: 13 }}>Save</button>
-            </div>
-            {superCodeError && <div style={{ color: "#F2545B", fontSize: 11.5, marginTop: 6 }}>{superCodeError}</div>}
-          </div>
 
           <div style={{ display: "flex", gap: 10, marginTop: 20 }}>
             <button onClick={() => setManageUsersOpen(false)} style={{ flex: 1, background: "transparent", color: "#8B948E", border: "1px solid #262B27", borderRadius: 8, padding: "11px 0", fontSize: 14 }}>Close</button>
