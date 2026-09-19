@@ -204,7 +204,7 @@ const emptyForm = {
   requestDate: todayStr()
 };
 const emptyRateForm = { client: "", city: "", vatGst: "", sla: "", note: "", manRate: "", hourRateWeekdayBiz: "", hourRateWeekdayAfter: "", hourRateWeekend: "" };
-const emptyRateInputs = { manRate: "", hourRateWeekdayBiz: "", hourRateWeekdayAfter: "", hourRateWeekend: "" };
+const emptyRateInputs = { hourRateWeekdayBiz: "", hourRateWeekdayAfter: "", hourRateWeekend: "" };
 const HOUR_TIERS = [
   { value: "weekday_biz", label: "Weekday Business Hours", rateField: "hourRateWeekdayBiz" },
   { value: "weekday_after", label: "Weekday After Office Hours", rateField: "hourRateWeekdayAfter" },
@@ -649,17 +649,15 @@ function Dashboard() {
     let ratePayload = null;
     if (includeRateInputs) {
       const parseRate = val => val.trim() === "" ? null : Number(val);
-      const man = parseRate(rateInputs.manRate);
       const bizH = parseRate(rateInputs.hourRateWeekdayBiz);
       const afterH = parseRate(rateInputs.hourRateWeekdayAfter);
       const weekendH = parseRate(rateInputs.hourRateWeekend);
-      if (rateInputs.manRate.trim() !== "" && (!Number.isFinite(man) || man < 0)) rateErrs.manRate = "Enter a valid rate";
       if (rateInputs.hourRateWeekdayBiz.trim() !== "" && (!Number.isFinite(bizH) || bizH < 0)) rateErrs.hourRateWeekdayBiz = "Enter a valid rate";
       if (rateInputs.hourRateWeekdayAfter.trim() !== "" && (!Number.isFinite(afterH) || afterH < 0)) rateErrs.hourRateWeekdayAfter = "Enter a valid rate";
       if (rateInputs.hourRateWeekend.trim() !== "" && (!Number.isFinite(weekendH) || weekendH < 0)) rateErrs.hourRateWeekend = "Enter a valid rate";
       setRateInputErrors(rateErrs);
-      if (man != null || bizH != null || afterH != null || weekendH != null) {
-        ratePayload = { manRate: man, hourRateWeekdayBiz: bizH, hourRateWeekdayAfter: afterH, hourRateWeekend: weekendH };
+      if (bizH != null || afterH != null || weekendH != null) {
+        ratePayload = { manRate: null, hourRateWeekdayBiz: bizH, hourRateWeekdayAfter: afterH, hourRateWeekend: weekendH };
       }
     }
 
@@ -1406,16 +1404,18 @@ function Dashboard() {
                 </select>
               )}
             </Field>
-            <Field label="City" error={fieldErrors.city}>
-              <input list="city-options" value={form.city} onChange={e => setForm({ ...form, city: e.target.value.toUpperCase() })}
-                placeholder="E.G. TOKYO" style={fieldErrors.city ? { ...inputStyle, border: "1px solid #F2545B" } : inputStyle} />
-              <datalist id="city-options">
-                {citiesForClient(rateCard, form.client).map(city => <option key={city} value={city} />)}
-              </datalist>
-              <div className="mono" style={{ fontSize: 10.5, color: "#8B948E", marginTop: 6 }}>
-                Rate is matched by client + city. Pick an existing city for this client to pull its rate, or enter a new one.
-              </div>
-            </Field>
+            {!includeRateInputs && (
+              <Field label="City" error={fieldErrors.city}>
+                <input list="city-options" value={form.city} onChange={e => setForm({ ...form, city: e.target.value.toUpperCase() })}
+                  placeholder="E.G. TOKYO" style={fieldErrors.city ? { ...inputStyle, border: "1px solid #F2545B" } : inputStyle} />
+                <datalist id="city-options">
+                  {citiesForClient(rateCard, form.client).map(city => <option key={city} value={city} />)}
+                </datalist>
+                <div className="mono" style={{ fontSize: 10.5, color: "#8B948E", marginTop: 6 }}>
+                  Rate is matched by client + city. Pick an existing city for this client to pull its rate, or enter a new one.
+                </div>
+              </Field>
+            )}
             <Field label="Address" error={fieldErrors.address}>
               <TextInput value={form.address} onChange={v => setForm({ ...form, address: v })} placeholder="E.G. XYZ STREET 12" uppercase error={!!fieldErrors.address} />
             </Field>
@@ -1523,12 +1523,14 @@ function Dashboard() {
               <div style={{ border: "1px solid #4ADE9C33", borderRadius: 10, padding: 14, display: "grid", gap: 12 }}>
                 <div className="mono" style={{ fontSize: 11, color: "#4ADE9C", letterSpacing: 0.5 }}>RATE CARD FOR THIS CLIENT + CITY</div>
                 <div className="mono" style={{ fontSize: 10.5, color: "#8B948E", marginTop: -6 }}>
-                  Optional — fill in whichever rates apply for the city entered above. This saves straight to the Rate Card. Add VAT/GST%, SLA or notes later from the Rate Card section.
+                  Optional — fill in whichever hourly rates apply. This saves straight to the Rate Card. Add VAT/GST%, SLA, notes or a 1x Man rate later from the Rate Card section.
                 </div>
-                <Field label="1x Man rate" error={rateInputErrors.manRate}>
-                  <input type="number" min="0" step="0.01" value={rateInputs.manRate}
-                    onChange={e => setRateInputs({ ...rateInputs, manRate: e.target.value })}
-                    style={rateInputErrors.manRate ? { ...inputStyle, border: "1px solid #F2545B" } : inputStyle} />
+                <Field label="City" error={fieldErrors.city}>
+                  <input list="city-options" value={form.city} onChange={e => setForm({ ...form, city: e.target.value.toUpperCase() })}
+                    placeholder="E.G. TOKYO" style={fieldErrors.city ? { ...inputStyle, border: "1px solid #F2545B" } : inputStyle} />
+                  <datalist id="city-options">
+                    {citiesForClient(rateCard, form.client).map(city => <option key={city} value={city} />)}
+                  </datalist>
                 </Field>
                 <Field label="Per hour · weekday business hours" error={rateInputErrors.hourRateWeekdayBiz}>
                   <input type="number" min="0" step="0.01" value={rateInputs.hourRateWeekdayBiz}
