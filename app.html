@@ -63,6 +63,32 @@ async function kvSet(key, value) {
   });
   if (!res.ok) throw new Error("kvSet failed: " + res.status);
 }
+async function checkSuperCode(inputCode) {
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/check_super_code`, {
+    method: "POST",
+    headers: {
+      apikey: SUPABASE_ANON_KEY,
+      Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ input_code: inputCode })
+  });
+  if (!res.ok) throw new Error("checkSuperCode failed: " + res.status);
+  return res.json();
+}
+async function setSuperCodeRemote(oldCode, newCode) {
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/set_super_code`, {
+    method: "POST",
+    headers: {
+      apikey: SUPABASE_ANON_KEY,
+      Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ old_code: oldCode, new_code: newCode })
+  });
+  if (!res.ok) throw new Error("setSuperCodeRemote failed: " + res.status);
+  return res.json();
+}
 
 // dedicated keys so this app never collides with any other tracker on the same project
 const KV_REQUESTS = "adhoc_token_requests";
@@ -71,7 +97,6 @@ const KV_CLIENTS = "adhoc_token_clients";
 const KV_USERS = "adhoc_token_users";
 const KV_PRESENCE = "adhoc_token_presence";
 const KV_ACTIVITY = "adhoc_token_activity";
-const KV_SUPER_CODE = "adhoc_token_super_code";
 const LS_USER_ID = "adhoc_token_user_id";
 
 // ============ tiny icon set ============
@@ -189,7 +214,6 @@ function findRate(rateCard, client) {
   const needle = client.trim().toLowerCase();
   return rateCard.find(r => r.client.trim().toLowerCase() === needle) || null;
 }
-const DEFAULT_SUPER_CODE = "SuperAdmin1234";
 const DEFAULT_CLIENTS = ["Kinly", "AVI-SPL", "One Diversified", "Kering", "Maxwell Chamber", "Nomura"];
 const ROLE_COLOR = { superadmin: "#4ADE9C", admin: "#6E9FB0", guest: "#8B948E" };
 const ROLE_LABEL = { superadmin: "Super Admin", admin: "Admin", guest: "Guest" };
@@ -235,7 +259,7 @@ function Dashboard() {
   const [users, setUsers] = useState([]);
   const [presence, setPresence] = useState({});
   const [activity, setActivity] = useState([]);
-  const [superAdminCode, setSuperAdminCode] = useState(DEFAULT_SUPER_CODE);
+  const [superAdminCode, setSuperAdminCode] = useState(null);
   const [currentUserId, setCurrentUserId] = useState(null);
   const [authTab, setAuthTab] = useState("login");
   const [loginFirst, setLoginFirst] = useState("");
@@ -301,10 +325,6 @@ function Dashboard() {
         const remotePresence = await kvGet(KV_PRESENCE);
         if (remotePresence) { setPresence(remotePresence); lastPresenceSyncedRef.current = JSON.stringify(remotePresence); }
       } catch (e) { console.error("load presence failed", e); }
-      try {
-        const code = await kvGet(KV_SUPER_CODE);
-        if (code) setSuperAdminCode(code);
-      } catch (e) {}
       try {
         const uidStored = localStorage.getItem(LS_USER_ID);
         if (uidStored) setCurrentUserId(uidStored);
@@ -507,9 +527,17 @@ function Dashboard() {
     setLoginFirst(""); setLoginLast(""); setLoginPin("");
     logActivityFor(match, "login", `${fullName(match)} logged in`);
   };
-  const submitSuperAdmin = () => {
+  const submitSuperAdmin = async () => {
     setSaError("");
-    if (saCode !== superAdminCode) { setSaError("Incorrect access code."); return; }
+    let valid = false;
+    try {
+      valid = await checkSuperCode(saCode);
+    } catch (e) {
+      setSaError("Could not verify code. Try again.");
+      return;
+    }
+    if (!valid) { setSaError("Incorrect access code."); return; }
+    setSuperAdminCode(saCode);
     const existing = users.find(u => u.role === "superadmin");
     if (existing) {
       setCurrentUserId(existing.id);
@@ -548,14 +576,19 @@ function Dashboard() {
     setUsers(us => us.filter(u => u.id !== userId));
     if (target) logActivity("remove-user", `Removed ${fullName(target)}`);
   };
-  const saveSuperCode = () => {
+  const saveSuperCode = async () => {
     if (!isSuperAdmin) return;
     if (!newSuperCode.trim() || newSuperCode.length < 6) { setSuperCodeError("Access code must be at least 6 characters."); return; }
-    setSuperAdminCode(newSuperCode);
-    kvSet(KV_SUPER_CODE, newSuperCode).catch(e => console.error("save super code failed", e));
-    logActivity("super-code-change", "Super Admin access code changed");
-    setNewSuperCode("");
-    setSuperCodeError("");
+    try {
+      const ok = await setSuperCodeRemote(superAdminCode, newSuperCode);
+      if (!ok) { setSuperCodeError("Could not verify current access code. Log out and back in, then try again."); return; }
+      setSuperAdminCode(newSuperCode);
+      logActivity("super-code-change", "Super Admin access code changed");
+      setNewSuperCode("");
+      setSuperCodeError("");
+    } catch (e) {
+      setSuperCodeError("Failed to save access code.");
+    }
   };
 
   const openAdd = () => {
