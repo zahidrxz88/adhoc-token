@@ -193,6 +193,7 @@ function buildSlots(form, existing = []) {
 const emptyForm = {
   refNo: "",
   client: "",
+  city: "",
   address: "",
   region: "",
   scope: "",
@@ -202,17 +203,23 @@ const emptyForm = {
   hourTier: "weekday_biz",
   requestDate: todayStr()
 };
-const emptyRateForm = { client: "", manRate: "", hourRateWeekdayBiz: "", hourRateWeekdayAfter: "", hourRateWeekend: "" };
+const emptyRateForm = { client: "", city: "", vatGst: "", sla: "", note: "", manRate: "", hourRateWeekdayBiz: "", hourRateWeekdayAfter: "", hourRateWeekend: "" };
 const emptyRateInputs = { manRate: "", hourRateWeekdayBiz: "", hourRateWeekdayAfter: "", hourRateWeekend: "" };
 const HOUR_TIERS = [
   { value: "weekday_biz", label: "Weekday Business Hours", rateField: "hourRateWeekdayBiz" },
   { value: "weekday_after", label: "Weekday After Office Hours", rateField: "hourRateWeekdayAfter" },
   { value: "weekend", label: "Weekend", rateField: "hourRateWeekend" }
 ];
-function findRate(rateCard, client) {
-  if (!client) return null;
+function findRate(rateCard, client, city) {
+  if (!client || !city) return null;
+  const cNeedle = client.trim().toLowerCase();
+  const tNeedle = city.trim().toLowerCase();
+  return rateCard.find(r => r.client.trim().toLowerCase() === cNeedle && (r.city || "").trim().toLowerCase() === tNeedle) || null;
+}
+function citiesForClient(rateCard, client) {
+  if (!client) return [];
   const needle = client.trim().toLowerCase();
-  return rateCard.find(r => r.client.trim().toLowerCase() === needle) || null;
+  return rateCard.filter(r => r.client.trim().toLowerCase() === needle).map(r => r.city).filter(Boolean);
 }
 const DEFAULT_CLIENTS = ["Kinly", "AVI-SPL", "One Diversified", "Kering", "Maxwell Chamber", "Nomura"];
 const ROLE_COLOR = { superadmin: "#4ADE9C", admin: "#6E9FB0", guest: "#8B948E" };
@@ -609,6 +616,7 @@ function Dashboard() {
     setForm({
       refNo: r.refNo,
       client: r.client,
+      city: r.city || "",
       address: r.address,
       region: r.region || "",
       scope: r.scope || "",
@@ -627,6 +635,7 @@ function Dashboard() {
     const errs = {};
     if (!form.refNo.trim()) errs.refNo = "Please fill in reference no";
     if (!form.client.trim()) errs.client = "Please fill in client";
+    if (!form.city.trim()) errs.city = "Please fill in city";
     if (!form.address.trim()) errs.address = "Please fill in address";
     if (!form.region.trim()) errs.region = "Please fill in region";
     if (!form.requestDate) errs.requestDate = "Please fill in request date";
@@ -679,11 +688,11 @@ function Dashboard() {
 
     if (ratePayload) {
       setRateCard(rc => {
-        const existing = findRate(rc, form.client);
+        const existing = findRate(rc, form.client, form.city);
         if (existing) {
           return rc.map(r => r.id !== existing.id ? r : { ...r, ...ratePayload });
         }
-        return [...rc, { id: uid(), client: form.client, ...ratePayload }];
+        return [...rc, { id: uid(), client: form.client, city: form.city, ...ratePayload }];
       });
     }
     if (includeRateInputs && form.client.trim()) {
@@ -719,6 +728,10 @@ function Dashboard() {
     if (!isAdmin) return;
     setRateForm({
       client: rate.client,
+      city: rate.city || "",
+      vatGst: rate.vatGst || "",
+      sla: rate.sla || "",
+      note: rate.note || "",
       manRate: String(rate.manRate ?? ""),
       hourRateWeekdayBiz: String(rate.hourRateWeekdayBiz ?? ""),
       hourRateWeekdayAfter: String(rate.hourRateWeekdayAfter ?? ""),
@@ -728,10 +741,24 @@ function Dashboard() {
     setRateFieldErrors({});
     setRateModalOpen(true);
   };
+  const openAddRate = () => {
+    if (!isAdmin) return;
+    setRateForm(emptyRateForm);
+    setEditingRateId(null);
+    setRateFieldErrors({});
+    setRateModalOpen(true);
+  };
   const saveRateForm = () => {
     if (!isAdmin) return;
     const errs = {};
     if (!rateForm.client.trim()) errs.client = "Please fill in client";
+    if (!rateForm.city.trim()) errs.city = "Please fill in city";
+    const dupe = rateCard.some(r =>
+      r.id !== editingRateId &&
+      r.client.trim().toLowerCase() === rateForm.client.trim().toLowerCase() &&
+      (r.city || "").trim().toLowerCase() === rateForm.city.trim().toLowerCase()
+    );
+    if (dupe) errs.city = "A rate for this client + city already exists";
     const parseRate = val => val.trim() === "" ? null : Number(val);
     const man = parseRate(rateForm.manRate);
     const bizH = parseRate(rateForm.hourRateWeekdayBiz);
@@ -747,13 +774,16 @@ function Dashboard() {
     setRateFieldErrors(errs);
     if (Object.keys(errs).length > 0) return;
 
-    const payload = { client: rateForm.client, manRate: man, hourRateWeekdayBiz: bizH, hourRateWeekdayAfter: afterH, hourRateWeekend: weekendH };
+    const payload = {
+      client: rateForm.client, city: rateForm.city, vatGst: rateForm.vatGst.trim(), sla: rateForm.sla.trim(), note: rateForm.note.trim(),
+      manRate: man, hourRateWeekdayBiz: bizH, hourRateWeekdayAfter: afterH, hourRateWeekend: weekendH
+    };
     if (editingRateId) {
       setRateCard(rc => rc.map(r => r.id !== editingRateId ? r : { ...r, ...payload }));
     } else {
       setRateCard(rc => [...rc, { id: uid(), ...payload }]);
     }
-    logActivity("edit-rate", `Set rate card for ${rateForm.client}`);
+    logActivity("edit-rate", `Set rate card for ${rateForm.client} (${rateForm.city})`);
     setRateModalOpen(false);
   };
   const deleteRate = id => {
@@ -805,7 +835,7 @@ function Dashboard() {
     const dueSoonCount = schedule.filter(s => s.status === "due-soon").length;
     const completedCount = schedule.filter(s => s.completed).length;
     const remaining = schedule.length - completedCount;
-    const rate = r.type === "token" ? findRate(rateCard, r.client) : null;
+    const rate = r.type === "token" ? findRate(rateCard, r.client, r.city) : null;
     let unitRate = null;
     if (rate) {
       if (r.unitType === "hour") {
@@ -1007,6 +1037,7 @@ function Dashboard() {
                       <div className="mono" style={{ fontSize: isNext ? 13 : 11, color: "#8B948E", marginTop: 3 }}>{item.refNo}</div>
                       <div style={{ fontSize: isNext ? 14 : 12, color: "#8B948E", marginTop: 3, wordBreak: "break-word" }}>
                         {item.address || "No address specified"}
+                        {item.city && <span className="mono" style={{ color: "#4ADE9C" }}> · {item.city.toUpperCase()}</span>}
                         {item.region && <span className="mono" style={{ color: "#6E9FB0" }}> · {item.region.toUpperCase()}</span>}
                       </div>
                     </div>
@@ -1046,41 +1077,64 @@ function Dashboard() {
         )}
 
         <section style={{ marginTop: 40 }}>
-          <SectionHeader title="Rate Card" sub={`${rateCard.length} client${rateCard.length === 1 ? "" : "s"} on file`} />
+          <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+            {(() => {
+              const clientCount = new Set(rateCard.map(r => r.client)).size;
+              return (
+                <SectionHeader title="Rate Card" sub={`${clientCount} client${clientCount === 1 ? "" : "s"} · ${rateCard.length} cit${rateCard.length === 1 ? "y" : "ies"} on file`} />
+              );
+            })()}
+            {isAdmin && (
+              <button onClick={openAddRate} style={{ display: "flex", alignItems: "center", gap: 8, background: "transparent", color: "#4ADE9C", border: "1px solid #4ADE9C55", borderRadius: 8, padding: "10px 16px", fontWeight: 600, fontSize: 13 }}>
+                <Plus size={15} /> Add Rate
+              </button>
+            )}
+          </div>
           <div className="mono" style={{ fontSize: 11, color: "#8B948E", marginBottom: 14 }}>
-            Rates matched by client name feed the estimated cost on token requests. New rates are set up via Top Up Tokens → New Client; use Edit Rate Card above if a rate changes.
+            Rates are matched by client + city and feed the estimated cost on token requests. Use Add Rate to add another city for an existing client, or Top Up Tokens → New Client to onboard a brand new client.
           </div>
           {rateCard.length === 0 ? (
             <EmptyRow text="No rates on file yet." />
           ) : (
-            <div style={{ border: "1px solid #1E2320", borderRadius: 10, overflow: "hidden" }}>
-              {rateCard.map((rate, i) => (
-                <div key={rate.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "14px 16px", background: i % 2 === 0 ? "#0E1210" : "#0B0E0C", borderBottom: i === rateCard.length - 1 ? "none" : "1px solid #1E2320", flexWrap: "wrap" }}>
-                  <div style={{ fontWeight: 700, fontSize: 14, minWidth: 0 }}>{rate.client}</div>
-                  <div style={{ display: "flex", gap: 18, fontSize: 12, flexWrap: "wrap" }}>
-                    <div>
-                      <div className="mono" style={{ color: "#8B948E", fontSize: 10 }}>1X MAN</div>
-                      <div className="mono">{rate.manRate != null ? rate.manRate.toLocaleString() : "—"}</div>
+            <div style={{ display: "grid", gap: 16 }}>
+              {Object.entries(rateCard.reduce((acc, r) => { (acc[r.client] = acc[r.client] || []).push(r); return acc; }, {})).map(([client, rates]) => (
+                <div key={client} style={{ border: "1px solid #1E2320", borderRadius: 10, overflow: "hidden" }}>
+                  <div style={{ padding: "10px 16px", background: "#12181580", fontWeight: 700, fontSize: 14 }}>{client}</div>
+                  {rates.map((rate, i) => (
+                    <div key={rate.id} style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, padding: "14px 16px", background: i % 2 === 0 ? "#0E1210" : "#0B0E0C", borderTop: "1px solid #1E2320", flexWrap: "wrap" }}>
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ fontWeight: 600, fontSize: 13 }}>{rate.city}</div>
+                        <div className="mono" style={{ color: "#8B948E", fontSize: 10.5, marginTop: 3 }}>
+                          {rate.vatGst ? `VAT/GST ${rate.vatGst}` : "VAT/GST —"} · {rate.sla ? `SLA ${rate.sla}` : "SLA —"}
+                        </div>
+                        {rate.note && <div style={{ color: "#6E9FB0", fontSize: 11, marginTop: 4, maxWidth: 260 }}>{rate.note}</div>}
+                      </div>
+                      <div style={{ display: "flex", gap: 18, fontSize: 12, flexWrap: "wrap" }}>
+                        <div>
+                          <div className="mono" style={{ color: "#8B948E", fontSize: 10 }}>1X MAN</div>
+                          <div className="mono">{rate.manRate != null ? rate.manRate.toLocaleString() : "—"}</div>
+                        </div>
+                        <div>
+                          <div className="mono" style={{ color: "#8B948E", fontSize: 10 }}>WEEKDAY BIZ HRS</div>
+                          <div className="mono">{rate.hourRateWeekdayBiz != null ? rate.hourRateWeekdayBiz.toLocaleString() : "—"}</div>
+                        </div>
+                        <div>
+                          <div className="mono" style={{ color: "#8B948E", fontSize: 10 }}>WEEKDAY AFTER HRS</div>
+                          <div className="mono">{rate.hourRateWeekdayAfter != null ? rate.hourRateWeekdayAfter.toLocaleString() : "—"}</div>
+                        </div>
+                        <div>
+                          <div className="mono" style={{ color: "#8B948E", fontSize: 10 }}>WEEKEND</div>
+                          <div className="mono">{rate.hourRateWeekend != null ? rate.hourRateWeekend.toLocaleString() : "—"}</div>
+                        </div>
+                      </div>
+                      {isAdmin && (
+                        <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+                          <IconBtn onClick={() => openEditRate(rate)}><Pencil size={13} /></IconBtn>
+                          <IconBtn onClick={() => setConfirmDeleteRate(rate.id)}><Trash2 size={13} /></IconBtn>
+                        </div>
+                      )}
                     </div>
-                    <div>
-                      <div className="mono" style={{ color: "#8B948E", fontSize: 10 }}>WEEKDAY BIZ HRS</div>
-                      <div className="mono">{rate.hourRateWeekdayBiz != null ? rate.hourRateWeekdayBiz.toLocaleString() : "—"}</div>
-                    </div>
-                    <div>
-                      <div className="mono" style={{ color: "#8B948E", fontSize: 10 }}>WEEKDAY AFTER HRS</div>
-                      <div className="mono">{rate.hourRateWeekdayAfter != null ? rate.hourRateWeekdayAfter.toLocaleString() : "—"}</div>
-                    </div>
-                    <div>
-                      <div className="mono" style={{ color: "#8B948E", fontSize: 10 }}>WEEKEND</div>
-                      <div className="mono">{rate.hourRateWeekend != null ? rate.hourRateWeekend.toLocaleString() : "—"}</div>
-                    </div>
-                  </div>
-                  {isAdmin && (
-                    <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
-                      <IconBtn onClick={() => openEditRate(rate)}><Pencil size={13} /></IconBtn>
-                      <IconBtn onClick={() => setConfirmDeleteRate(rate.id)}><Trash2 size={13} /></IconBtn>
-                    </div>
-                  )}
+                  ))}
                 </div>
               ))}
             </div>
@@ -1094,10 +1148,25 @@ function Dashboard() {
           <div style={{ display: "grid", gap: 14 }}>
             <Field label="Client" error={rateFieldErrors.client}>
               <select value={rateForm.client} onChange={e => setRateForm({ ...rateForm, client: e.target.value })}
-                style={rateFieldErrors.client ? { ...selectStyle, border: "1px solid #F2545B" } : selectStyle}>
+                disabled={!!editingRateId}
+                style={rateFieldErrors.client ? { ...selectStyle, border: "1px solid #F2545B", opacity: editingRateId ? 0.6 : 1 } : { ...selectStyle, opacity: editingRateId ? 0.6 : 1 }}>
                 <option value="">Please select client</option>
                 {clientsList.map(client => <option key={client} value={client}>{client}</option>)}
               </select>
+            </Field>
+            <Field label="City" error={rateFieldErrors.city}>
+              <TextInput value={rateForm.city} onChange={v => setRateForm({ ...rateForm, city: v })} placeholder="e.g. Tokyo" error={!!rateFieldErrors.city} />
+            </Field>
+            <Field label="VAT / GST">
+              <TextInput value={rateForm.vatGst} onChange={v => setRateForm({ ...rateForm, vatGst: v })} placeholder="e.g. 10% or N/A" />
+            </Field>
+            <Field label="SLA">
+              <TextInput value={rateForm.sla} onChange={v => setRateForm({ ...rateForm, sla: v })} placeholder="e.g. 8hours or 2days" />
+            </Field>
+            <Field label="Note">
+              <textarea value={rateForm.note} onChange={e => setRateForm({ ...rateForm, note: e.target.value })}
+                placeholder="Optional — exceptions, extra charges, etc." rows={2}
+                style={{ ...inputStyle, resize: "vertical", fontFamily: "'Space Grotesk', sans-serif" }} />
             </Field>
             <Field label="1x Man rate" error={rateFieldErrors.manRate}>
               <input type="number" min="0" step="0.01" value={rateForm.manRate}
@@ -1221,17 +1290,17 @@ function Dashboard() {
       {rateChooserOpen && (
         <Modal onClose={() => setRateChooserOpen(false)} narrow>
           <h2 style={{ margin: "0 0 10px", fontSize: 16, fontWeight: 700 }}>Edit Rate Card</h2>
-          <p style={{ color: "#8B948E", fontSize: 13, margin: "0 0 16px" }}>Pick a client to update their rates.</p>
+          <p style={{ color: "#8B948E", fontSize: 13, margin: "0 0 16px" }}>Pick a client + city to update their rates.</p>
           {rateCard.length === 0 ? (
             <div className="mono" style={{ fontSize: 12, color: "#8B948E", lineHeight: 1.6 }}>
-              No rate card entries yet. Use Top Up Tokens → New Client to set one up.
+              No rate card entries yet. Use Add Rate or Top Up Tokens → New Client to set one up.
             </div>
           ) : (
             <div style={{ display: "grid", gap: 8 }}>
               {rateCard.map(rate => (
                 <button key={rate.id} onClick={() => { setRateChooserOpen(false); openEditRate(rate); }}
                   style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, background: "transparent", border: "1px solid #262B27", borderRadius: 8, padding: "12px 14px", color: "#E8ECE9", fontSize: 14, fontWeight: 600, textAlign: "left" }}>
-                  {rate.client}
+                  {rate.client} — {rate.city}
                   <Pencil size={13} color="#8B948E" />
                 </button>
               ))}
@@ -1330,12 +1399,22 @@ function Dashboard() {
                   </div>
                 </React.Fragment>
               ) : (
-                <select value={form.client} onChange={e => setForm({ ...form, client: e.target.value })}
+                <select value={form.client} onChange={e => setForm({ ...form, client: e.target.value, city: "" })}
                   style={fieldErrors.client ? { ...selectStyle, border: "1px solid #F2545B" } : selectStyle}>
                   <option value="">Please select client</option>
                   {clientsList.map(client => <option key={client} value={client}>{client}</option>)}
                 </select>
               )}
+            </Field>
+            <Field label="City" error={fieldErrors.city}>
+              <input list="city-options" value={form.city} onChange={e => setForm({ ...form, city: e.target.value })}
+                placeholder="e.g. Tokyo" style={fieldErrors.city ? { ...inputStyle, border: "1px solid #F2545B" } : inputStyle} />
+              <datalist id="city-options">
+                {citiesForClient(rateCard, form.client).map(city => <option key={city} value={city} />)}
+              </datalist>
+              <div className="mono" style={{ fontSize: 10.5, color: "#8B948E", marginTop: 6 }}>
+                Rate is matched by client + city. Pick an existing city for this client to pull its rate, or enter a new one.
+              </div>
             </Field>
             <Field label="Address" error={fieldErrors.address}>
               <TextInput value={form.address} onChange={v => setForm({ ...form, address: v })} placeholder="e.g. xyz street 12" uppercase error={!!fieldErrors.address} />
@@ -1413,10 +1492,10 @@ function Dashboard() {
                   )}
 
                   {(() => {
-                    const matched = findRate(rateCard, form.client);
+                    const matched = findRate(rateCard, form.client, form.city);
                     if (!matched) return (
                       <div className="mono" style={{ fontSize: 10.5, color: "#8B948E", marginTop: 7 }}>
-                        No rate card entry for this client yet.
+                        No rate card entry for this client/city yet.
                       </div>
                     );
                     let rate, unitLabel;
@@ -1442,9 +1521,9 @@ function Dashboard() {
 
             {includeRateInputs && (
               <div style={{ border: "1px solid #4ADE9C33", borderRadius: 10, padding: 14, display: "grid", gap: 12 }}>
-                <div className="mono" style={{ fontSize: 11, color: "#4ADE9C", letterSpacing: 0.5 }}>RATE CARD FOR THIS CLIENT</div>
+                <div className="mono" style={{ fontSize: 11, color: "#4ADE9C", letterSpacing: 0.5 }}>RATE CARD FOR THIS CLIENT + CITY</div>
                 <div className="mono" style={{ fontSize: 10.5, color: "#8B948E", marginTop: -6 }}>
-                  Optional — fill in whichever rates apply. This saves straight to the Rate Card.
+                  Optional — fill in whichever rates apply for the city entered above. This saves straight to the Rate Card. Add VAT/GST%, SLA or notes later from the Rate Card section.
                 </div>
                 <Field label="1x Man rate" error={rateInputErrors.manRate}>
                   <input type="number" min="0" step="0.01" value={rateInputs.manRate}
@@ -1544,6 +1623,7 @@ function RequestCard({ r, isAdmin, isUser, onEdit, onDelete, onSetDate, onToggle
 
       <div style={{ fontSize: 12.5, color: "#8B948E", margin: "10px 0", lineHeight: 1.5 }}>
         {r.address || "No address specified"}
+        {r.city && <span className="mono" style={{ color: "#4ADE9C" }}> · {r.city.toUpperCase()}</span>}
         {r.region && <span className="mono" style={{ color: "#6E9FB0" }}> · {r.region.toUpperCase()}</span>}
       </div>
       {r.scope && (
