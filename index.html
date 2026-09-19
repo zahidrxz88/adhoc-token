@@ -1459,6 +1459,7 @@ function Dashboard() {
                     style={fieldErrors.tokenCount ? { ...inputStyle, border: "1px solid #F2545B" } : inputStyle} />
                 </Field>
 
+                {!includeRateInputs && (
                 <Field label="Token unit">
                   <div style={{ display: "flex", gap: 8 }}>
                     <button type="button" className="type-btn" onClick={() => setForm({ ...form, unitType: "man" })}
@@ -1516,6 +1517,7 @@ function Dashboard() {
                     );
                   })()}
                 </Field>
+                )}
               </React.Fragment>
             )}
 
@@ -1550,9 +1552,11 @@ function Dashboard() {
               </div>
             )}
 
-            <Field label="Request date" error={fieldErrors.requestDate}>
-              <TextInput type="date" value={form.requestDate} onChange={v => setForm({ ...form, requestDate: v })} error={!!fieldErrors.requestDate} />
-            </Field>
+            {!includeRateInputs && (
+              <Field label="Request date" error={fieldErrors.requestDate}>
+                <TextInput type="date" value={form.requestDate} onChange={v => setForm({ ...form, requestDate: v })} error={!!fieldErrors.requestDate} />
+              </Field>
+            )}
           </div>
 
           <div style={{ display: "flex", gap: 10, marginTop: 22 }}>
