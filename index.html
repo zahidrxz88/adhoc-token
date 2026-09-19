@@ -222,7 +222,6 @@ function citiesForClient(rateCard, client) {
   const needle = client.trim().toLowerCase();
   return rateCard.filter(r => r.client.trim().toLowerCase() === needle).map(r => r.city).filter(Boolean);
 }
-const DEFAULT_CLIENTS = ["Kinly", "AVI-SPL", "One Diversified", "Kering", "Maxwell Chamber", "Nomura"];
 const ROLE_COLOR = { superadmin: "#4ADE9C", admin: "#6E9FB0", guest: "#8B948E" };
 const ROLE_LABEL = { superadmin: "Super Admin", admin: "Admin", guest: "Guest" };
 function initials(first, last) {
@@ -242,7 +241,7 @@ const COUNTRIES = ["Afghanistan", "Albania", "Algeria", "Andorra", "Angola", "An
 function Dashboard() {
   const [requests, setRequests] = useState([]);
   const [rateCard, setRateCard] = useState([]);
-  const [clientsList, setClientsList] = useState(DEFAULT_CLIENTS);
+  const [clientsList, setClientsList] = useState([]);
   const [loaded, setLoaded] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
   const [editingId, setEditingId] = useState(null);
