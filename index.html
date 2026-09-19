@@ -904,8 +904,8 @@ function Dashboard() {
 
           {authTab === "login" && (
             <div style={{ display: "grid", gap: 12 }}>
-              <Field label="First name"><TextInput value={loginFirst} onChange={setLoginFirst} placeholder="Jane" /></Field>
-              <Field label="Last name"><TextInput value={loginLast} onChange={setLoginLast} placeholder="Doe" /></Field>
+              <Field label="First name"><TextInput value={loginFirst} onChange={setLoginFirst} placeholder="JANE" uppercase /></Field>
+              <Field label="Last name"><TextInput value={loginLast} onChange={setLoginLast} placeholder="DOE" uppercase /></Field>
               <Field label="Your password"><input type="password" value={loginPin} onChange={e => setLoginPin(e.target.value)} onKeyDown={e => e.key === "Enter" && submitLogin()} style={inputStyle} /></Field>
               {loginError && <div style={{ color: "#F2545B", fontSize: 12 }}>{loginError}</div>}
               <button onClick={submitLogin} style={{ background: "#4ADE9C", color: "#0B0E0C", border: "none", borderRadius: 8, padding: "11px 0", fontWeight: 600, fontSize: 14 }}>Log In</button>
@@ -914,8 +914,8 @@ function Dashboard() {
 
           {authTab === "register" && (
             <div style={{ display: "grid", gap: 12 }}>
-              <Field label="First name"><TextInput value={regFirst} onChange={setRegFirst} placeholder="Jane" /></Field>
-              <Field label="Last name"><TextInput value={regLast} onChange={setRegLast} placeholder="Doe" /></Field>
+              <Field label="First name"><TextInput value={regFirst} onChange={setRegFirst} placeholder="JANE" uppercase /></Field>
+              <Field label="Last name"><TextInput value={regLast} onChange={setRegLast} placeholder="DOE" uppercase /></Field>
               <Field label="Choose a password"><input type="password" value={regPin} onChange={e => setRegPin(e.target.value)} onKeyDown={e => e.key === "Enter" && submitRegister()} placeholder="Min 6 characters" style={inputStyle} /></Field>
               <div className="mono" style={{ fontSize: 10.5, color: "#8B948E" }}>New accounts start as Guest (view only) until a Super Admin promotes you.</div>
               {regError && <div style={{ color: "#F2545B", fontSize: 12 }}>{regError}</div>}
@@ -927,8 +927,8 @@ function Dashboard() {
             <div style={{ display: "grid", gap: 12 }}>
               {!superAdminExists && (
                 <React.Fragment>
-                  <Field label="First name"><TextInput value={saFirst} onChange={setSaFirst} placeholder="Jane" /></Field>
-                  <Field label="Last name"><TextInput value={saLast} onChange={setSaLast} placeholder="Doe" /></Field>
+                  <Field label="First name"><TextInput value={saFirst} onChange={setSaFirst} placeholder="JANE" uppercase /></Field>
+                  <Field label="Last name"><TextInput value={saLast} onChange={setSaLast} placeholder="DOE" uppercase /></Field>
                   <div className="mono" style={{ fontSize: 10.5, color: "#8B948E" }}>No Super Admin exists yet — the correct access code claims the role permanently for this name.</div>
                 </React.Fragment>
               )}
@@ -1155,17 +1155,17 @@ function Dashboard() {
               </select>
             </Field>
             <Field label="City" error={rateFieldErrors.city}>
-              <TextInput value={rateForm.city} onChange={v => setRateForm({ ...rateForm, city: v })} placeholder="e.g. Tokyo" error={!!rateFieldErrors.city} />
+              <TextInput value={rateForm.city} onChange={v => setRateForm({ ...rateForm, city: v })} placeholder="E.G. TOKYO" uppercase error={!!rateFieldErrors.city} />
             </Field>
             <Field label="VAT / GST">
-              <TextInput value={rateForm.vatGst} onChange={v => setRateForm({ ...rateForm, vatGst: v })} placeholder="e.g. 10% or N/A" />
+              <TextInput value={rateForm.vatGst} onChange={v => setRateForm({ ...rateForm, vatGst: v })} placeholder="E.G. 10% OR N/A" uppercase />
             </Field>
             <Field label="SLA">
-              <TextInput value={rateForm.sla} onChange={v => setRateForm({ ...rateForm, sla: v })} placeholder="e.g. 8hours or 2days" />
+              <TextInput value={rateForm.sla} onChange={v => setRateForm({ ...rateForm, sla: v })} placeholder="E.G. 8HOURS OR 2DAYS" uppercase />
             </Field>
             <Field label="Note">
-              <textarea value={rateForm.note} onChange={e => setRateForm({ ...rateForm, note: e.target.value })}
-                placeholder="Optional — exceptions, extra charges, etc." rows={2}
+              <textarea value={rateForm.note} onChange={e => setRateForm({ ...rateForm, note: e.target.value.toUpperCase() })}
+                placeholder="OPTIONAL — EXCEPTIONS, EXTRA CHARGES, ETC." rows={2}
                 style={{ ...inputStyle, resize: "vertical", fontFamily: "'Space Grotesk', sans-serif" }} />
             </Field>
             <Field label="1x Man rate" error={rateFieldErrors.manRate}>
@@ -1358,7 +1358,7 @@ function Dashboard() {
                     <Field label="Amount to top up">
                       <input type="number" min="1" value={topUpAmount}
                         onChange={e => { setTopUpAmount(e.target.value); setTopUpError(""); }}
-                        style={inputStyle} placeholder="e.g. 5" />
+                        style={inputStyle} placeholder="E.G. 5" />
                     </Field>
                   </React.Fragment>
                 )}
@@ -1393,7 +1393,7 @@ function Dashboard() {
             <Field label="Client" error={fieldErrors.client}>
               {includeRateInputs ? (
                 <React.Fragment>
-                  <TextInput value={form.client} onChange={v => setForm({ ...form, client: v })} placeholder="Enter new client name" error={!!fieldErrors.client} />
+                  <TextInput value={form.client} onChange={v => setForm({ ...form, client: v })} placeholder="ENTER NEW CLIENT NAME" uppercase error={!!fieldErrors.client} />
                   <div className="mono" style={{ fontSize: 10.5, color: "#8B948E", marginTop: 6 }}>
                     New client — this will be added to the client list once saved.
                   </div>
@@ -1407,8 +1407,8 @@ function Dashboard() {
               )}
             </Field>
             <Field label="City" error={fieldErrors.city}>
-              <input list="city-options" value={form.city} onChange={e => setForm({ ...form, city: e.target.value })}
-                placeholder="e.g. Tokyo" style={fieldErrors.city ? { ...inputStyle, border: "1px solid #F2545B" } : inputStyle} />
+              <input list="city-options" value={form.city} onChange={e => setForm({ ...form, city: e.target.value.toUpperCase() })}
+                placeholder="E.G. TOKYO" style={fieldErrors.city ? { ...inputStyle, border: "1px solid #F2545B" } : inputStyle} />
               <datalist id="city-options">
                 {citiesForClient(rateCard, form.client).map(city => <option key={city} value={city} />)}
               </datalist>
@@ -1417,7 +1417,7 @@ function Dashboard() {
               </div>
             </Field>
             <Field label="Address" error={fieldErrors.address}>
-              <TextInput value={form.address} onChange={v => setForm({ ...form, address: v })} placeholder="e.g. xyz street 12" uppercase error={!!fieldErrors.address} />
+              <TextInput value={form.address} onChange={v => setForm({ ...form, address: v })} placeholder="E.G. XYZ STREET 12" uppercase error={!!fieldErrors.address} />
             </Field>
             <Field label="Region" error={fieldErrors.region}>
               <select value={form.region} onChange={e => setForm({ ...form, region: e.target.value })}
@@ -1427,8 +1427,8 @@ function Dashboard() {
               </select>
             </Field>
             <Field label="Scope description">
-              <textarea value={form.scope} onChange={e => setForm({ ...form, scope: e.target.value })}
-                placeholder="Describe the job / scope of work"
+              <textarea value={form.scope} onChange={e => setForm({ ...form, scope: e.target.value.toUpperCase() })}
+                placeholder="DESCRIBE THE JOB / SCOPE OF WORK"
                 rows={3} style={{ ...inputStyle, resize: "vertical", fontFamily: "'Space Grotesk', sans-serif" }} />
             </Field>
 
