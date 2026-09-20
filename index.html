@@ -238,10 +238,13 @@ function Dashboard() {
   const [editingId, setEditingId] = useState(null);
   const [form, setForm] = useState(emptyForm);
   const [fieldErrors, setFieldErrors] = useState({});
+  const [formSaveError, setFormSaveError] = useState("");
+  const [saving, setSaving] = useState(false);
   const [rateModalOpen, setRateModalOpen] = useState(false);
   const [editingRateId, setEditingRateId] = useState(null);
   const [rateForm, setRateForm] = useState(emptyRateForm);
   const [rateFieldErrors, setRateFieldErrors] = useState({});
+  const [rateSaveError, setRateSaveError] = useState("");
   const [confirmDeleteRate, setConfirmDeleteRate] = useState(null);
   const [rateChooserOpen, setRateChooserOpen] = useState(false);
   const [includeRateInputs, setIncludeRateInputs] = useState(false);
@@ -549,6 +552,7 @@ function Dashboard() {
     setForm(emptyForm);
     setEditingId(null);
     setFieldErrors({});
+    setFormSaveError("");
     setIncludeRateInputs(false);
     setRateInputs(emptyRateInputs);
     setRateInputErrors({});
@@ -574,9 +578,10 @@ function Dashboard() {
     });
     setEditingId(r.id);
     setFieldErrors({});
+    setFormSaveError("");
     setModalOpen(true);
   };
-  const saveForm = () => {
+  const saveForm = async () => {
     if (!isAdmin) return;
     const errs = {};
     if (!form.refNo.trim()) errs.refNo = "Please fill in reference no";
@@ -609,49 +614,70 @@ function Dashboard() {
 
     if (Object.keys(errs).length > 0 || Object.keys(rateErrs).length > 0) return;
 
+    let newRequests;
     if (editingId) {
-      setRequests(rs => rs.map(r => {
+      newRequests = requests.map(r => {
         if (r.id !== editingId) return r;
         const changed = r.type !== form.type || Number(form.tokenCount) !== r.tokenCount;
         const schedule = changed ? buildSlots(form, r.schedule || []) : r.schedule;
-        return {
-          ...r,
-          ...form,
-          tokenCount: slotCountFor(form),
-          schedule
-        };
-      }));
+        return { ...r, ...form, tokenCount: slotCountFor(form), schedule };
+      });
     } else {
-      setRequests(rs => [...rs, {
-        id: uid(),
-        ...form,
-        tokenCount: slotCountFor(form),
-        schedule: buildSlots(form, [])
-      }]);
+      newRequests = [...requests, { id: uid(), ...form, tokenCount: slotCountFor(form), schedule: buildSlots(form, []) }];
     }
 
+    let newRateCard = rateCard;
     if (ratePayload) {
-      setRateCard(rc => {
-        const existing = findRate(rc, form.client, form.city);
-        if (existing) {
-          return rc.map(r => r.id !== existing.id ? r : { ...r, ...ratePayload });
-        }
-        return [...rc, { id: uid(), client: form.client, city: form.city, ...ratePayload }];
-      });
+      const existing = findRate(rateCard, form.client, form.city);
+      newRateCard = existing
+        ? rateCard.map(r => r.id !== existing.id ? r : { ...r, ...ratePayload })
+        : [...rateCard, { id: uid(), client: form.client, city: form.city, ...ratePayload }];
     }
+
+    let newClientsList = clientsList;
     if (includeRateInputs && form.client.trim()) {
       const clientName = form.client.trim();
-      setClientsList(cl => cl.some(c => c.trim().toLowerCase() === clientName.toLowerCase()) ? cl : [...cl, clientName]);
+      newClientsList = clientsList.some(c => c.trim().toLowerCase() === clientName.toLowerCase()) ? clientsList : [...clientsList, clientName];
     }
-    logActivity(editingId ? "edit-request" : "add-request", `${editingId ? "Edited" : "Added"} request ${form.refNo} for ${form.client}`);
-    setModalOpen(false);
+
+    setFormSaveError("");
+    setSaving(true);
+    try {
+      await kvSet(KV_REQUESTS, newRequests);
+      if (newRateCard !== rateCard) await kvSet(KV_RATE_CARD, newRateCard);
+      if (newClientsList !== clientsList) await kvSet(KV_CLIENTS, newClientsList);
+
+      setRequests(newRequests);
+      lastSyncedRef.current = JSON.stringify(newRequests);
+      if (newRateCard !== rateCard) { setRateCard(newRateCard); lastRateSyncedRef.current = JSON.stringify(newRateCard); }
+      if (newClientsList !== clientsList) { setClientsList(newClientsList); lastClientsSyncedRef.current = JSON.stringify(newClientsList); }
+
+      logActivity(editingId ? "edit-request" : "add-request", `${editingId ? "Edited" : "Added"} request ${form.refNo} for ${form.client}`);
+      setModalOpen(false);
+    } catch (e) {
+      console.error("save request failed", e);
+      setFormSaveError("Could not save — check your connection and try again. Your entered data is still here.");
+    } finally {
+      setSaving(false);
+    }
   };
-  const deleteRequest = id => {
+  const deleteRequest = async id => {
     if (!isAdmin) return;
     const target = requests.find(r => r.id === id);
-    setRequests(rs => rs.filter(r => r.id !== id));
-    setConfirmDelete(null);
-    if (target) logActivity("delete-request", `Deleted request ${target.refNo} for ${target.client}`);
+    const newRequests = requests.filter(r => r.id !== id);
+    setSaving(true);
+    try {
+      await kvSet(KV_REQUESTS, newRequests);
+      setRequests(newRequests);
+      lastSyncedRef.current = JSON.stringify(newRequests);
+      setConfirmDelete(null);
+      if (target) logActivity("delete-request", `Deleted request ${target.refNo} for ${target.client}`);
+    } catch (e) {
+      console.error("delete request failed", e);
+      alert("Could not delete — check your connection and try again.");
+    } finally {
+      setSaving(false);
+    }
   };
   const setSlotDate = (requestId, slotId, dateStr) => {
     if (!isAdmin) return;
@@ -679,6 +705,7 @@ function Dashboard() {
     });
     setEditingRateId(rate.id);
     setRateFieldErrors({});
+    setRateSaveError("");
     setRateModalOpen(true);
   };
   const openAddRate = () => {
@@ -686,9 +713,10 @@ function Dashboard() {
     setRateForm(emptyRateForm);
     setEditingRateId(null);
     setRateFieldErrors({});
+    setRateSaveError("");
     setRateModalOpen(true);
   };
-  const saveRateForm = () => {
+  const saveRateForm = async () => {
     if (!isAdmin) return;
     const errs = {};
     if (!rateForm.client.trim()) errs.client = "Please fill in client";
@@ -716,20 +744,42 @@ function Dashboard() {
       client: rateForm.client, city: rateForm.city,
       hourRateWeekdayBiz: bizH, hourRateWeekdayAfter: afterH, hourRateWeekend: weekendH
     };
-    if (editingRateId) {
-      setRateCard(rc => rc.map(r => r.id !== editingRateId ? r : { ...r, ...payload }));
-    } else {
-      setRateCard(rc => [...rc, { id: uid(), ...payload }]);
+    const newRateCard = editingRateId
+      ? rateCard.map(r => r.id !== editingRateId ? r : { ...r, ...payload })
+      : [...rateCard, { id: uid(), ...payload }];
+
+    setRateSaveError("");
+    setSaving(true);
+    try {
+      await kvSet(KV_RATE_CARD, newRateCard);
+      setRateCard(newRateCard);
+      lastRateSyncedRef.current = JSON.stringify(newRateCard);
+      logActivity("edit-rate", `Set rate card for ${rateForm.client} (${rateForm.city})`);
+      setRateModalOpen(false);
+    } catch (e) {
+      console.error("save rate failed", e);
+      setRateSaveError("Could not save — check your connection and try again. Your entered data is still here.");
+    } finally {
+      setSaving(false);
     }
-    logActivity("edit-rate", `Set rate card for ${rateForm.client} (${rateForm.city})`);
-    setRateModalOpen(false);
   };
-  const deleteRate = id => {
+  const deleteRate = async id => {
     if (!isAdmin) return;
     const target = rateCard.find(r => r.id === id);
-    setRateCard(rc => rc.filter(r => r.id !== id));
-    setConfirmDeleteRate(null);
-    if (target) logActivity("delete-rate", `Removed rate card for ${target.client}`);
+    const newRateCard = rateCard.filter(r => r.id !== id);
+    setSaving(true);
+    try {
+      await kvSet(KV_RATE_CARD, newRateCard);
+      setRateCard(newRateCard);
+      lastRateSyncedRef.current = JSON.stringify(newRateCard);
+      setConfirmDeleteRate(null);
+      if (target) logActivity("delete-rate", `Removed rate card for ${target.client}`);
+    } catch (e) {
+      console.error("delete rate failed", e);
+      alert("Could not delete — check your connection and try again.");
+    } finally {
+      setSaving(false);
+    }
   };
 
   const openTopUp = () => {
@@ -745,20 +795,34 @@ function Dashboard() {
     setForm({ ...emptyForm, type: "token" });
     setEditingId(null);
     setFieldErrors({});
+    setFormSaveError("");
     setIncludeRateInputs(true);
     setRateInputs(emptyRateInputs);
     setRateInputErrors({});
     setModalOpen(true);
   };
-  const submitTopUp = () => {
+  const submitTopUp = async () => {
     if (!isAdmin) return;
     if (!topUpRequestId) { setTopUpError("Please select a client / request to top up."); return; }
     const amount = parseInt(topUpAmount, 10);
     if (!Number.isFinite(amount) || amount < 1) { setTopUpError("Enter a top-up amount of 1 or more."); return; }
     const target = requests.find(r => r.id === topUpRequestId);
-    setRequests(rs => rs.map(r => r.id !== topUpRequestId ? r : { ...r, tokenCount: (r.tokenCount || 0) + amount }));
-    if (target) logActivity("top-up", `Topped up ${amount} token${amount > 1 ? "s" : ""} for ${target.client} (${target.refNo})`);
-    setTopUpModalOpen(false);
+    const newRequests = requests.map(r => r.id !== topUpRequestId ? r : { ...r, tokenCount: (r.tokenCount || 0) + amount });
+
+    setTopUpError("");
+    setSaving(true);
+    try {
+      await kvSet(KV_REQUESTS, newRequests);
+      setRequests(newRequests);
+      lastSyncedRef.current = JSON.stringify(newRequests);
+      if (target) logActivity("top-up", `Topped up ${amount} token${amount > 1 ? "s" : ""} for ${target.client} (${target.refNo})`);
+      setTopUpModalOpen(false);
+    } catch (e) {
+      console.error("top up failed", e);
+      setTopUpError("Could not save — check your connection and try again.");
+    } finally {
+      setSaving(false);
+    }
   };
 
   const enriched = useMemo(() => requests.map(r => {
@@ -1120,12 +1184,13 @@ function Dashboard() {
                 onChange={e => setRateForm({ ...rateForm, hourRateWeekend: e.target.value })}
                 style={rateFieldErrors.hourRateWeekend ? { ...inputStyle, border: "1px solid #F2545B" } : inputStyle} />
             </Field>
+            {rateSaveError && <div style={{ color: "#F2545B", fontSize: 12.5 }}>{rateSaveError}</div>}
           </div>
           <div style={{ display: "flex", gap: 10, marginTop: 22 }}>
-            <button onClick={saveRateForm} style={{ flex: 1, background: "#4ADE9C", color: "#0B0E0C", border: "none", borderRadius: 8, padding: "11px 0", fontWeight: 600, fontSize: 14 }}>
-              {editingRateId ? "Save changes" : "Add rate"}
+            <button onClick={saveRateForm} disabled={saving} style={{ flex: 1, background: "#4ADE9C", color: "#0B0E0C", border: "none", borderRadius: 8, padding: "11px 0", fontWeight: 600, fontSize: 14, opacity: saving ? 0.6 : 1 }}>
+              {saving ? "Saving…" : editingRateId ? "Save changes" : "Add rate"}
             </button>
-            <button onClick={() => setRateModalOpen(false)} style={{ background: "transparent", color: "#8B948E", border: "1px solid #262B27", borderRadius: 8, padding: "11px 18px", fontSize: 14 }}>Cancel</button>
+            <button onClick={() => setRateModalOpen(false)} disabled={saving} style={{ background: "transparent", color: "#8B948E", border: "1px solid #262B27", borderRadius: 8, padding: "11px 18px", fontSize: 14 }}>Cancel</button>
           </div>
         </Modal>
       )}
@@ -1135,8 +1200,10 @@ function Dashboard() {
           <h2 style={{ margin: "0 0 10px", fontSize: 16, fontWeight: 700 }}>Delete this rate?</h2>
           <p style={{ color: "#8B948E", fontSize: 13, margin: "0 0 20px" }}>This removes the client's rate card entry. This can't be undone.</p>
           <div style={{ display: "flex", gap: 10 }}>
-            <button onClick={() => deleteRate(confirmDeleteRate)} style={{ flex: 1, background: "#F2545B", color: "#0B0E0C", border: "none", borderRadius: 8, padding: "11px 0", fontWeight: 600, fontSize: 14 }}>Delete</button>
-            <button onClick={() => setConfirmDeleteRate(null)} style={{ background: "transparent", color: "#8B948E", border: "1px solid #262B27", borderRadius: 8, padding: "11px 18px", fontSize: 14 }}>Cancel</button>
+            <button onClick={() => deleteRate(confirmDeleteRate)} disabled={saving} style={{ flex: 1, background: "#F2545B", color: "#0B0E0C", border: "none", borderRadius: 8, padding: "11px 0", fontWeight: 600, fontSize: 14, opacity: saving ? 0.6 : 1 }}>
+              {saving ? "Deleting…" : "Delete"}
+            </button>
+            <button onClick={() => setConfirmDeleteRate(null)} disabled={saving} style={{ background: "transparent", color: "#8B948E", border: "1px solid #262B27", borderRadius: 8, padding: "11px 18px", fontSize: 14 }}>Cancel</button>
           </div>
         </Modal>
       )}
@@ -1292,12 +1359,12 @@ function Dashboard() {
                 Continue to Add Request
               </button>
             ) : (
-              <button onClick={submitTopUp} disabled={requests.filter(r => r.type === "token").length === 0}
-                style={{ flex: 1, background: "#4ADE9C", color: "#0B0E0C", border: "none", borderRadius: 8, padding: "11px 0", fontWeight: 600, fontSize: 14, opacity: requests.filter(r => r.type === "token").length === 0 ? 0.5 : 1 }}>
-                Top up
+              <button onClick={submitTopUp} disabled={saving || requests.filter(r => r.type === "token").length === 0}
+                style={{ flex: 1, background: "#4ADE9C", color: "#0B0E0C", border: "none", borderRadius: 8, padding: "11px 0", fontWeight: 600, fontSize: 14, opacity: (saving || requests.filter(r => r.type === "token").length === 0) ? 0.5 : 1 }}>
+                {saving ? "Saving…" : "Top up"}
               </button>
             )}
-            <button onClick={() => setTopUpModalOpen(false)} style={{ background: "transparent", color: "#8B948E", border: "1px solid #262B27", borderRadius: 8, padding: "11px 18px", fontSize: 14 }}>Cancel</button>
+            <button onClick={() => setTopUpModalOpen(false)} disabled={saving} style={{ background: "transparent", color: "#8B948E", border: "1px solid #262B27", borderRadius: 8, padding: "11px 18px", fontSize: 14 }}>Cancel</button>
           </div>
         </Modal>
       )}
@@ -1478,13 +1545,14 @@ function Dashboard() {
                 <TextInput type="date" value={form.requestDate} onChange={v => setForm({ ...form, requestDate: v })} error={!!fieldErrors.requestDate} />
               </Field>
             )}
+            {formSaveError && <div style={{ color: "#F2545B", fontSize: 12.5 }}>{formSaveError}</div>}
           </div>
 
           <div style={{ display: "flex", gap: 10, marginTop: 22 }}>
-            <button onClick={saveForm} style={{ flex: 1, background: "#4ADE9C", color: "#0B0E0C", border: "none", borderRadius: 8, padding: "11px 0", fontWeight: 600, fontSize: 14 }}>
-              {editingId ? "Save changes" : "Add request"}
+            <button onClick={saveForm} disabled={saving} style={{ flex: 1, background: "#4ADE9C", color: "#0B0E0C", border: "none", borderRadius: 8, padding: "11px 0", fontWeight: 600, fontSize: 14, opacity: saving ? 0.6 : 1 }}>
+              {saving ? "Saving…" : editingId ? "Save changes" : "Add request"}
             </button>
-            <button onClick={() => setModalOpen(false)} style={{ background: "transparent", color: "#8B948E", border: "1px solid #262B27", borderRadius: 8, padding: "11px 18px", fontSize: 14 }}>Cancel</button>
+            <button onClick={() => setModalOpen(false)} disabled={saving} style={{ background: "transparent", color: "#8B948E", border: "1px solid #262B27", borderRadius: 8, padding: "11px 18px", fontSize: 14 }}>Cancel</button>
           </div>
         </Modal>
       )}
@@ -1494,8 +1562,10 @@ function Dashboard() {
           <h2 style={{ margin: "0 0 10px", fontSize: 16, fontWeight: 700 }}>Delete this request?</h2>
           <p style={{ color: "#8B948E", fontSize: 13, margin: "0 0 20px" }}>This removes the request and its visit history. This can't be undone.</p>
           <div style={{ display: "flex", gap: 10 }}>
-            <button onClick={() => deleteRequest(confirmDelete)} style={{ flex: 1, background: "#F2545B", color: "#0B0E0C", border: "none", borderRadius: 8, padding: "11px 0", fontWeight: 600, fontSize: 14 }}>Delete</button>
-            <button onClick={() => setConfirmDelete(null)} style={{ background: "transparent", color: "#8B948E", border: "1px solid #262B27", borderRadius: 8, padding: "11px 18px", fontSize: 14 }}>Cancel</button>
+            <button onClick={() => deleteRequest(confirmDelete)} disabled={saving} style={{ flex: 1, background: "#F2545B", color: "#0B0E0C", border: "none", borderRadius: 8, padding: "11px 0", fontWeight: 600, fontSize: 14, opacity: saving ? 0.6 : 1 }}>
+              {saving ? "Deleting…" : "Delete"}
+            </button>
+            <button onClick={() => setConfirmDelete(null)} disabled={saving} style={{ background: "transparent", color: "#8B948E", border: "1px solid #262B27", borderRadius: 8, padding: "11px 18px", fontSize: 14 }}>Cancel</button>
           </div>
         </Modal>
       )}
