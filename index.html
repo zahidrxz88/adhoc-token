@@ -903,6 +903,9 @@ function Dashboard() {
                   <button onClick={() => setRateChooserOpen(true)} style={{ display: "flex", alignItems: "center", gap: 8, background: "transparent", color: "#4ADE9C", border: "1px solid #4ADE9C55", borderRadius: 8, padding: "12px 18px", fontWeight: 600, fontSize: 14 }}>
                     <Pencil size={16} /> Edit Rate Card
                   </button>
+                  <button onClick={openAddRate} style={{ display: "flex", alignItems: "center", gap: 8, background: "transparent", color: "#4ADE9C", border: "1px solid #4ADE9C55", borderRadius: 8, padding: "12px 18px", fontWeight: 600, fontSize: 14 }}>
+                    <Plus size={16} /> Add Rate
+                  </button>
                   <button onClick={openTopUp} style={{ display: "flex", alignItems: "center", gap: 8, background: "transparent", color: "#6E9FB0", border: "1px solid #6E9FB055", borderRadius: 8, padding: "12px 18px", fontWeight: 600, fontSize: 14 }}>
                     <Ticket size={16} /> Top Up Tokens
                   </button>
@@ -986,19 +989,12 @@ function Dashboard() {
         )}
 
         <section style={{ marginTop: 40 }}>
-          <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
-            {(() => {
-              const clientCount = new Set(rateCard.map(r => r.client)).size;
-              return (
-                <SectionHeader title="Rate Card" sub={`${clientCount} client${clientCount === 1 ? "" : "s"} · ${rateCard.length} cit${rateCard.length === 1 ? "y" : "ies"} on file`} />
-              );
-            })()}
-            {isAdmin && (
-              <button onClick={openAddRate} style={{ display: "flex", alignItems: "center", gap: 8, background: "transparent", color: "#4ADE9C", border: "1px solid #4ADE9C55", borderRadius: 8, padding: "10px 16px", fontWeight: 600, fontSize: 13 }}>
-                <Plus size={15} /> Add Rate
-              </button>
-            )}
-          </div>
+          {(() => {
+            const clientCount = new Set(rateCard.map(r => r.client)).size;
+            return (
+              <SectionHeader title="Rate Card" sub={`${clientCount} client${clientCount === 1 ? "" : "s"} · ${rateCard.length} cit${rateCard.length === 1 ? "y" : "ies"} on file`} />
+            );
+          })()}
           <div className="mono" style={{ fontSize: 11, color: "#8B948E", marginBottom: 14 }}>
             Rates are matched by client + city and feed the estimated cost on token requests. Use Add Rate to add another city for an existing client, or Top Up Tokens → New Client to onboard a brand new client.
           </div>
@@ -1300,7 +1296,7 @@ function Dashboard() {
                 {COUNTRIES.map(country => <option key={country} value={country}>{country}</option>)}
               </select>
             </Field>
-            <Field label="Scope description">
+            <Field label="Description">
               <textarea value={form.scope} onChange={e => setForm({ ...form, scope: e.target.value.toUpperCase() })}
                 placeholder="DESCRIBE THE JOB / SCOPE OF WORK"
                 rows={3} style={{ ...inputStyle, resize: "vertical", fontFamily: "'Space Grotesk', sans-serif" }} />
