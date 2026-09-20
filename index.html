@@ -42,16 +42,16 @@ const { useState, useEffect, useMemo, useRef } = React;
 // ============ SUPABASE CONFIG (this app's own dedicated project) ============
 const SUPABASE_URL = "https://jkwakavosclpnbtyyltx.supabase.co";
 const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imprd2FrYXZvc2NscG5idHl5bHR4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODk4NDcwMDcsImV4cCI6MjEwNTQyMzAwN30.NNgTpapEFBInQRaekXCN34HIN0UkGTW7oznn2PoVkH0";
-const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 // kvGet/kvSet ride on the current Supabase Auth session automatically -- no session, no access (kv_store RLS requires authenticated)
 async function kvGet(key) {
-  const { data, error } = await supabase.from("kv_store").select("value").eq("key", key).maybeSingle();
+  const { data, error } = await sb.from("kv_store").select("value").eq("key", key).maybeSingle();
   if (error) throw error;
   return data ? data.value : null;
 }
 async function kvSet(key, value) {
-  const { error } = await supabase.from("kv_store").upsert({ key, value, updated_at: new Date().toISOString() });
+  const { error } = await sb.from("kv_store").upsert({ key, value, updated_at: new Date().toISOString() });
   if (error) throw error;
 }
 
@@ -263,11 +263,11 @@ function Dashboard() {
 
   // establish and track the Supabase Auth session
   useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => {
+    sb.auth.getSession().then(({ data }) => {
       setSession(data.session);
       setAuthReady(true);
     });
-    const { data: sub } = supabase.auth.onAuthStateChange((_event, newSession) => {
+    const { data: sub } = sb.auth.onAuthStateChange((_event, newSession) => {
       setSession(newSession);
     });
     return () => sub.subscription.unsubscribe();
@@ -298,7 +298,7 @@ function Dashboard() {
       } catch (e) { console.error("load clients failed", e); }
       let mappedUsers = [];
       try {
-        const { data, error } = await supabase.from("profiles").select("*");
+        const { data, error } = await sb.from("profiles").select("*");
         if (error) throw error;
         mappedUsers = (data || []).map(mapProfile);
         setUsers(mappedUsers);
@@ -423,7 +423,7 @@ function Dashboard() {
         }
       } catch (e) {}
       try {
-        const { data, error } = await supabase.from("profiles").select("*");
+        const { data, error } = await sb.from("profiles").select("*");
         if (error) throw error;
         const mapped = (data || []).map(mapProfile);
         const mappedJson = JSON.stringify(mapped);
@@ -480,7 +480,7 @@ function Dashboard() {
       if (authMode === "register") {
         if (!authFirst.trim() || !authLast.trim()) { setAuthError("Please enter your first and last name."); return; }
         if (authPassword.length < 6) { setAuthError("Choose a password of at least 6 characters."); return; }
-        const { error } = await supabase.auth.signUp({
+        const { error } = await sb.auth.signUp({
           email: authEmail.trim(),
           password: authPassword,
           options: { data: { first_name: authFirst.trim(), last_name: authLast.trim() } }
@@ -490,7 +490,7 @@ function Dashboard() {
         setAuthMode("login");
         setAuthPassword("");
       } else {
-        const { error } = await supabase.auth.signInWithPassword({ email: authEmail.trim(), password: authPassword });
+        const { error } = await sb.auth.signInWithPassword({ email: authEmail.trim(), password: authPassword });
         if (error) { setAuthError(error.message); return; }
         setAuthPassword("");
       }
@@ -506,13 +506,13 @@ function Dashboard() {
       await kvSet(KV_PRESENCE, remote);
       setPresence(remote);
     } catch (e) {}
-    await supabase.auth.signOut();
+    await sb.auth.signOut();
   };
   const setUserRole = async (userId, newRole) => {
     if (!isSuperAdmin) return;
     const target = users.find(u => u.id === userId);
     try {
-      const { data, error } = await supabase.rpc("set_user_role", { target_id: userId, new_role: newRole });
+      const { data, error } = await sb.rpc("set_user_role", { target_id: userId, new_role: newRole });
       if (error || !data) return;
       setUsers(us => us.map(u => u.id === userId ? { ...u, role: newRole } : u));
       if (target) logActivity("role-change", `Set ${fullName(target)} to ${ROLE_LABEL[newRole]}`);
