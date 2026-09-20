@@ -110,6 +110,12 @@ const ListIcon = p => (
     <line x1="3" y1="6" x2="3.01" y2="6" /><line x1="3" y1="12" x2="3.01" y2="12" /><line x1="3" y1="18" x2="3.01" y2="18" />
   </Icon>
 );
+const Download = p => (
+  <Icon {...p}>
+    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+    <polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" />
+  </Icon>
+);
 
 // ---------- date helpers ----------
 const MS_DAY = 86400000;
@@ -152,6 +158,25 @@ function buildSlots(form, existing = []) {
     out.push(existing[i] ? existing[i] : { id: uid(), date: null, completed: false });
   }
   return out;
+}
+
+function csvEscape(val) {
+  const s = val == null ? "" : String(val);
+  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+}
+function toCsv(rows) {
+  return rows.map(row => row.map(csvEscape).join(",")).join("\r\n");
+}
+function downloadCsv(filename, rows) {
+  const blob = new Blob([toCsv(rows)], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
 }
 
 const emptyForm = {
@@ -793,6 +818,29 @@ function Dashboard() {
       .sort((a, b) => fullName(a).localeCompare(fullName(b)));
   }, [presence]);
 
+  const exportRequestsCsv = () => {
+    if (!isAdmin) return;
+    const header = ["Reference No", "Client", "City", "Address", "Region", "Type", "Token Unit", "Amount of Tokens", "Rate ($)", "Est. Cost ($)", "Request Date", "Description"];
+    const rows = enriched.map(r => {
+      const isTok = r.type === "token";
+      const tokenUnitLabel = isTok
+        ? (r.unitType === "hour" ? (HOUR_TIERS.find(t => t.value === r.hourTier) || HOUR_TIERS[0]).label : "1x Man")
+        : "";
+      return [
+        r.refNo, r.client, r.city || "", r.address, r.region || "",
+        isTok ? "Token" : "Adhoc",
+        tokenUnitLabel,
+        isTok ? r.tokenCount : "",
+        isTok && r.unitRate != null ? r.unitRate : "",
+        isTok && r.estCost != null ? r.estCost : "",
+        r.requestDate,
+        r.scope || ""
+      ];
+    });
+    downloadCsv(`adhoc-token-requests-${todayStr()}.csv`, [header, ...rows]);
+    logActivity("export-csv", `Exported ${rows.length} request${rows.length === 1 ? "" : "s"} to CSV`);
+  };
+
   if (!authReady) {
     return (
       <div style={{ minHeight: "100vh", background: "#0B0E0C", display: "flex", alignItems: "center", justifyContent: "center", color: "#8B948E", fontFamily: "'Space Grotesk', sans-serif" }}>
@@ -911,6 +959,9 @@ function Dashboard() {
                   </button>
                   <button onClick={openAdd} style={{ display: "flex", alignItems: "center", gap: 8, background: "#4ADE9C", color: "#0B0E0C", border: "none", borderRadius: 8, padding: "12px 18px", fontWeight: 600, fontSize: 14 }}>
                     <Plus size={16} /> Add Request
+                  </button>
+                  <button onClick={exportRequestsCsv} style={{ display: "flex", alignItems: "center", gap: 8, background: "transparent", color: "#E8ECE9", border: "1px solid #262B27", borderRadius: 8, padding: "12px 18px", fontWeight: 600, fontSize: 14 }}>
+                    <Download size={16} /> Export CSV
                   </button>
                 </React.Fragment>
               )}
