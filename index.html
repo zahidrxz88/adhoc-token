@@ -805,9 +805,9 @@ function Dashboard() {
   [enriched]);
 
   const stats = useMemo(() => {
-    const open = enriched.filter(r => r.remaining > 0).length;
-    const overdue = enriched.filter(r => r.overdueCount > 0).length;
-    return { open, overdue };
+    const open = enriched.filter(r => r.type === "adhoc" && r.remaining > 0).length;
+    const activeTokens = enriched.filter(r => r.type === "token").length;
+    return { open, activeTokens };
   }, [enriched]);
 
   const onlineUsers = useMemo(() => {
@@ -969,7 +969,7 @@ function Dashboard() {
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 12, marginTop: 24 }}>
             <StatBox label="OPEN REQUESTS" value={stats.open} color="#E8ECE9" />
-            <StatBox label="OVERDUE" value={stats.overdue} color="#F2545B" />
+            <StatBox label="ACTIVE TOKEN" value={stats.activeTokens} color="#4ADE9C" />
           </div>
         </div>
       </div>
