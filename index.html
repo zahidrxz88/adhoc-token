@@ -167,7 +167,7 @@ const emptyForm = {
   hourTier: "weekday_biz",
   requestDate: todayStr()
 };
-const emptyRateForm = { client: "", city: "", vatGst: "", sla: "", note: "", manRate: "", hourRateWeekdayBiz: "", hourRateWeekdayAfter: "", hourRateWeekend: "" };
+const emptyRateForm = { client: "", city: "", hourRateWeekdayBiz: "", hourRateWeekdayAfter: "", hourRateWeekend: "" };
 const emptyRateInputs = { hourRateWeekdayBiz: "", hourRateWeekdayAfter: "", hourRateWeekend: "" };
 const HOUR_TIERS = [
   { value: "weekday_biz", label: "Weekday Business Hours", rateField: "hourRateWeekdayBiz" },
@@ -578,7 +578,7 @@ function Dashboard() {
       if (rateInputs.hourRateWeekend.trim() !== "" && (!Number.isFinite(weekendH) || weekendH < 0)) rateErrs.hourRateWeekend = "Enter a valid rate";
       setRateInputErrors(rateErrs);
       if (bizH != null || afterH != null || weekendH != null) {
-        ratePayload = { manRate: null, hourRateWeekdayBiz: bizH, hourRateWeekdayAfter: afterH, hourRateWeekend: weekendH };
+        ratePayload = { hourRateWeekdayBiz: bizH, hourRateWeekdayAfter: afterH, hourRateWeekend: weekendH };
       }
     }
 
@@ -648,10 +648,6 @@ function Dashboard() {
     setRateForm({
       client: rate.client,
       city: rate.city || "",
-      vatGst: rate.vatGst || "",
-      sla: rate.sla || "",
-      note: rate.note || "",
-      manRate: String(rate.manRate ?? ""),
       hourRateWeekdayBiz: String(rate.hourRateWeekdayBiz ?? ""),
       hourRateWeekdayAfter: String(rate.hourRateWeekdayAfter ?? ""),
       hourRateWeekend: String(rate.hourRateWeekend ?? "")
@@ -679,23 +675,21 @@ function Dashboard() {
     );
     if (dupe) errs.city = "A rate for this client + city already exists";
     const parseRate = val => val.trim() === "" ? null : Number(val);
-    const man = parseRate(rateForm.manRate);
     const bizH = parseRate(rateForm.hourRateWeekdayBiz);
     const afterH = parseRate(rateForm.hourRateWeekdayAfter);
     const weekendH = parseRate(rateForm.hourRateWeekend);
-    if (rateForm.manRate.trim() !== "" && (!Number.isFinite(man) || man < 0)) errs.manRate = "Enter a valid rate";
     if (rateForm.hourRateWeekdayBiz.trim() !== "" && (!Number.isFinite(bizH) || bizH < 0)) errs.hourRateWeekdayBiz = "Enter a valid rate";
     if (rateForm.hourRateWeekdayAfter.trim() !== "" && (!Number.isFinite(afterH) || afterH < 0)) errs.hourRateWeekdayAfter = "Enter a valid rate";
     if (rateForm.hourRateWeekend.trim() !== "" && (!Number.isFinite(weekendH) || weekendH < 0)) errs.hourRateWeekend = "Enter a valid rate";
-    if (man === null && bizH === null && afterH === null && weekendH === null) {
-      errs.manRate = "Enter at least one rate";
+    if (bizH === null && afterH === null && weekendH === null) {
+      errs.hourRateWeekdayBiz = "Enter at least one rate";
     }
     setRateFieldErrors(errs);
     if (Object.keys(errs).length > 0) return;
 
     const payload = {
-      client: rateForm.client, city: rateForm.city, vatGst: rateForm.vatGst.trim(), sla: rateForm.sla.trim(), note: rateForm.note.trim(),
-      manRate: man, hourRateWeekdayBiz: bizH, hourRateWeekdayAfter: afterH, hourRateWeekend: weekendH
+      client: rateForm.client, city: rateForm.city,
+      hourRateWeekdayBiz: bizH, hourRateWeekdayAfter: afterH, hourRateWeekend: weekendH
     };
     if (editingRateId) {
       setRateCard(rc => rc.map(r => r.id !== editingRateId ? r : { ...r, ...payload }));
@@ -1019,16 +1013,8 @@ function Dashboard() {
                     <div key={rate.id} style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, padding: "14px 16px", background: i % 2 === 0 ? "#0E1210" : "#0B0E0C", borderTop: "1px solid #1E2320", flexWrap: "wrap" }}>
                       <div style={{ minWidth: 0 }}>
                         <div style={{ fontWeight: 600, fontSize: 13 }}>{rate.city}</div>
-                        <div className="mono" style={{ color: "#8B948E", fontSize: 10.5, marginTop: 3 }}>
-                          {rate.vatGst ? `VAT/GST ${rate.vatGst}` : "VAT/GST —"} · {rate.sla ? `SLA ${rate.sla}` : "SLA —"}
-                        </div>
-                        {rate.note && <div style={{ color: "#6E9FB0", fontSize: 11, marginTop: 4, maxWidth: 260 }}>{rate.note}</div>}
                       </div>
                       <div style={{ display: "flex", gap: 18, fontSize: 12, flexWrap: "wrap" }}>
-                        <div>
-                          <div className="mono" style={{ color: "#8B948E", fontSize: 10 }}>1X MAN</div>
-                          <div className="mono">{rate.manRate != null ? rate.manRate.toLocaleString() : "—"}</div>
-                        </div>
                         <div>
                           <div className="mono" style={{ color: "#8B948E", fontSize: 10 }}>WEEKDAY BIZ HRS</div>
                           <div className="mono">{rate.hourRateWeekdayBiz != null ? rate.hourRateWeekdayBiz.toLocaleString() : "—"}</div>
@@ -1071,22 +1057,6 @@ function Dashboard() {
             </Field>
             <Field label="City" error={rateFieldErrors.city}>
               <TextInput value={rateForm.city} onChange={v => setRateForm({ ...rateForm, city: v })} placeholder="E.G. TOKYO" uppercase error={!!rateFieldErrors.city} />
-            </Field>
-            <Field label="VAT / GST">
-              <TextInput value={rateForm.vatGst} onChange={v => setRateForm({ ...rateForm, vatGst: v })} placeholder="E.G. 10% OR N/A" uppercase />
-            </Field>
-            <Field label="SLA">
-              <TextInput value={rateForm.sla} onChange={v => setRateForm({ ...rateForm, sla: v })} placeholder="E.G. 8HOURS OR 2DAYS" uppercase />
-            </Field>
-            <Field label="Note">
-              <textarea value={rateForm.note} onChange={e => setRateForm({ ...rateForm, note: e.target.value.toUpperCase() })}
-                placeholder="OPTIONAL — EXCEPTIONS, EXTRA CHARGES, ETC." rows={2}
-                style={{ ...inputStyle, resize: "vertical", fontFamily: "'Space Grotesk', sans-serif" }} />
-            </Field>
-            <Field label="1x Man rate" error={rateFieldErrors.manRate}>
-              <input type="number" min="0" step="0.01" value={rateForm.manRate}
-                onChange={e => setRateForm({ ...rateForm, manRate: e.target.value })}
-                style={rateFieldErrors.manRate ? { ...inputStyle, border: "1px solid #F2545B" } : inputStyle} />
             </Field>
             <Field label="Amount ($) per hour · Weekday Business Hours" error={rateFieldErrors.hourRateWeekdayBiz}>
               <input type="number" min="0" step="0.01" value={rateForm.hourRateWeekdayBiz}
@@ -1429,7 +1399,7 @@ function Dashboard() {
               <div style={{ border: "1px solid #4ADE9C33", borderRadius: 10, padding: 14, display: "grid", gap: 12 }}>
                 <div className="mono" style={{ fontSize: 11, color: "#4ADE9C", letterSpacing: 0.5 }}>RATE CARD FOR THIS CLIENT + CITY</div>
                 <div className="mono" style={{ fontSize: 10.5, color: "#8B948E", marginTop: -6 }}>
-                  Optional — fill in whichever hourly rates apply. This saves straight to the Rate Card. Add VAT/GST%, SLA, notes or a 1x Man rate later from the Rate Card section.
+                  Optional — fill in whichever hourly rates apply. This saves straight to the Rate Card.
                 </div>
                 <Field label="City" error={fieldErrors.city}>
                   <input list="city-options" value={form.city} onChange={e => setForm({ ...form, city: e.target.value.toUpperCase() })}
