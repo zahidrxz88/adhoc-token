@@ -1088,17 +1088,17 @@ function Dashboard() {
                 onChange={e => setRateForm({ ...rateForm, manRate: e.target.value })}
                 style={rateFieldErrors.manRate ? { ...inputStyle, border: "1px solid #F2545B" } : inputStyle} />
             </Field>
-            <Field label="Per hour · weekday business hours" error={rateFieldErrors.hourRateWeekdayBiz}>
+            <Field label="Amount ($) per hour · Weekday Business Hours" error={rateFieldErrors.hourRateWeekdayBiz}>
               <input type="number" min="0" step="0.01" value={rateForm.hourRateWeekdayBiz}
                 onChange={e => setRateForm({ ...rateForm, hourRateWeekdayBiz: e.target.value })}
                 style={rateFieldErrors.hourRateWeekdayBiz ? { ...inputStyle, border: "1px solid #F2545B" } : inputStyle} />
             </Field>
-            <Field label="Per hour · weekday after office hours" error={rateFieldErrors.hourRateWeekdayAfter}>
+            <Field label="Amount ($) per hour · Weekday After Office Hours" error={rateFieldErrors.hourRateWeekdayAfter}>
               <input type="number" min="0" step="0.01" value={rateForm.hourRateWeekdayAfter}
                 onChange={e => setRateForm({ ...rateForm, hourRateWeekdayAfter: e.target.value })}
                 style={rateFieldErrors.hourRateWeekdayAfter ? { ...inputStyle, border: "1px solid #F2545B" } : inputStyle} />
             </Field>
-            <Field label="Per hour · weekend" error={rateFieldErrors.hourRateWeekend}>
+            <Field label="Amount ($) per hour · Weekend" error={rateFieldErrors.hourRateWeekend}>
               <input type="number" min="0" step="0.01" value={rateForm.hourRateWeekend}
                 onChange={e => setRateForm({ ...rateForm, hourRateWeekend: e.target.value })}
                 style={rateFieldErrors.hourRateWeekend ? { ...inputStyle, border: "1px solid #F2545B" } : inputStyle} />
@@ -1357,7 +1357,7 @@ function Dashboard() {
 
             {form.type === "token" && (
               <React.Fragment>
-                <Field label="Number of tokens" error={fieldErrors.tokenCount}>
+                <Field label="Amount of Tokens" error={fieldErrors.tokenCount}>
                   <input type="number" min="1" value={form.tokenCount}
                     onChange={e => setForm({ ...form, tokenCount: e.target.value })}
                     style={fieldErrors.tokenCount ? { ...inputStyle, border: "1px solid #F2545B" } : inputStyle} />
@@ -1438,17 +1438,17 @@ function Dashboard() {
                     {citiesForClient(rateCard, form.client).map(city => <option key={city} value={city} />)}
                   </datalist>
                 </Field>
-                <Field label="Per hour · weekday business hours" error={rateInputErrors.hourRateWeekdayBiz}>
+                <Field label="Amount ($) per hour · Weekday Business Hours" error={rateInputErrors.hourRateWeekdayBiz}>
                   <input type="number" min="0" step="0.01" value={rateInputs.hourRateWeekdayBiz}
                     onChange={e => setRateInputs({ ...rateInputs, hourRateWeekdayBiz: e.target.value })}
                     style={rateInputErrors.hourRateWeekdayBiz ? { ...inputStyle, border: "1px solid #F2545B" } : inputStyle} />
                 </Field>
-                <Field label="Per hour · weekday after office hours" error={rateInputErrors.hourRateWeekdayAfter}>
+                <Field label="Amount ($) per hour · Weekday After Office Hours" error={rateInputErrors.hourRateWeekdayAfter}>
                   <input type="number" min="0" step="0.01" value={rateInputs.hourRateWeekdayAfter}
                     onChange={e => setRateInputs({ ...rateInputs, hourRateWeekdayAfter: e.target.value })}
                     style={rateInputErrors.hourRateWeekdayAfter ? { ...inputStyle, border: "1px solid #F2545B" } : inputStyle} />
                 </Field>
-                <Field label="Per hour · weekend" error={rateInputErrors.hourRateWeekend}>
+                <Field label="Amount ($) per hour · Weekend" error={rateInputErrors.hourRateWeekend}>
                   <input type="number" min="0" step="0.01" value={rateInputs.hourRateWeekend}
                     onChange={e => setRateInputs({ ...rateInputs, hourRateWeekend: e.target.value })}
                     style={rateInputErrors.hourRateWeekend ? { ...inputStyle, border: "1px solid #F2545B" } : inputStyle} />
