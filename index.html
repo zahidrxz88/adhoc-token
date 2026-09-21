@@ -188,9 +188,9 @@ const emptyForm = {
   scope: "",
   type: "adhoc",
   tokenCount: "",
-  unitType: "man",
-  hourTier: "weekday_biz",
-  requestDate: todayStr()
+  requestDate: todayStr(),
+  startTime: "",
+  endTime: ""
 };
 const emptyRateForm = { client: "", city: "", hourRateWeekdayBiz: "", hourRateWeekdayAfter: "", hourRateWeekend: "" };
 const emptyRateInputs = { hourRateWeekdayBiz: "", hourRateWeekdayAfter: "", hourRateWeekend: "" };
@@ -209,6 +209,34 @@ function citiesForClient(rateCard, client) {
   if (!client) return [];
   const needle = client.trim().toLowerCase();
   return rateCard.filter(r => r.client.trim().toLowerCase() === needle).map(r => r.city).filter(Boolean);
+}
+const BUSINESS_HOURS_START = "09:00";
+const BUSINESS_HOURS_END = "18:00";
+function deriveHourTier(requestDate, startTime) {
+  if (!requestDate || !startTime) return null;
+  const day = parseD(requestDate).getDay(); // 0 = Sun, 6 = Sat
+  if (day === 0 || day === 6) return "weekend";
+  return (startTime >= BUSINESS_HOURS_START && startTime < BUSINESS_HOURS_END) ? "weekday_biz" : "weekday_after";
+}
+function hoursBetween(startTime, endTime) {
+  if (!startTime || !endTime) return null;
+  const [sh, sm] = startTime.split(":").map(Number);
+  const [eh, em] = endTime.split(":").map(Number);
+  const mins = (eh * 60 + em) - (sh * 60 + sm);
+  return mins > 0 ? mins / 60 : null;
+}
+// deducts hours worked (start->end) from the typed token count, but only when the
+// start/end time is newly set or changed vs. what's already stored -- editing a
+// token request without touching the time fields must not deduct the same job twice.
+function finalTokenCountFor(form, existing) {
+  const n = parseInt(form.tokenCount, 10);
+  const base = Number.isFinite(n) && n > 0 ? n : 1;
+  const prevStart = existing ? (existing.startTime || "") : "";
+  const prevEnd = existing ? (existing.endTime || "") : "";
+  if (form.startTime === prevStart && form.endTime === prevEnd) return base;
+  const hrs = hoursBetween(form.startTime, form.endTime);
+  if (hrs == null) return base;
+  return Math.round(Math.max(0, base - hrs) * 100) / 100;
 }
 const ROLE_COLOR = { superadmin: "#4ADE9C", admin: "#6E9FB0", guest: "#8B948E" };
 const ROLE_LABEL = { superadmin: "Super Admin", admin: "Admin", guest: "Guest" };
@@ -572,9 +600,9 @@ function Dashboard() {
       scope: r.scope || "",
       type: r.type,
       tokenCount: String(r.tokenCount || 5),
-      unitType: r.unitType || "man",
-      hourTier: r.hourTier || "weekday_biz",
-      requestDate: r.requestDate
+      requestDate: r.requestDate,
+      startTime: r.startTime || "",
+      endTime: r.endTime || ""
     });
     setEditingId(r.id);
     setFieldErrors({});
@@ -590,6 +618,7 @@ function Dashboard() {
     if (!form.address.trim()) errs.address = "Please fill in address";
     if (!form.region.trim()) errs.region = "Please fill in region";
     if (!form.requestDate) errs.requestDate = "Please fill in request date";
+    if (form.startTime && form.endTime && form.endTime <= form.startTime) errs.endTime = "End time must be after start time";
     if (form.type === "token") {
       const n = parseInt(form.tokenCount, 10);
       if (!Number.isFinite(n) || n < 1) errs.tokenCount = "Enter a token count of 1 or more";
@@ -620,10 +649,12 @@ function Dashboard() {
         if (r.id !== editingId) return r;
         const changed = r.type !== form.type || Number(form.tokenCount) !== r.tokenCount;
         const schedule = changed ? buildSlots(form, r.schedule || []) : r.schedule;
-        return { ...r, ...form, tokenCount: slotCountFor(form), schedule };
+        const tokenCount = form.type === "token" ? finalTokenCountFor(form, r) : slotCountFor(form);
+        return { ...r, ...form, tokenCount, schedule };
       });
     } else {
-      newRequests = [...requests, { id: uid(), ...form, tokenCount: slotCountFor(form), schedule: buildSlots(form, []) }];
+      const tokenCount = form.type === "token" ? finalTokenCountFor(form, null) : slotCountFor(form);
+      newRequests = [...requests, { id: uid(), ...form, tokenCount, schedule: buildSlots(form, []) }];
     }
 
     let newRateCard = rateCard;
@@ -835,17 +866,15 @@ function Dashboard() {
     // token requests are a running balance with no "done" state, so they always count as open
     const remaining = r.type === "token" ? 1 : schedule.length - completedCount;
     const rate = r.type === "token" ? findRate(rateCard, r.client, r.city) : null;
+    const hourTier = r.type === "token" ? deriveHourTier(r.requestDate, r.startTime) : null;
+    const durationHours = r.type === "token" ? hoursBetween(r.startTime, r.endTime) : null;
     let unitRate = null;
-    if (rate) {
-      if (r.unitType === "hour") {
-        const tier = HOUR_TIERS.find(t => t.value === r.hourTier) || HOUR_TIERS[0];
-        unitRate = rate[tier.rateField];
-      } else {
-        unitRate = rate.manRate;
-      }
+    if (rate && hourTier) {
+      const tier = HOUR_TIERS.find(t => t.value === hourTier) || HOUR_TIERS[0];
+      unitRate = rate[tier.rateField];
     }
-    const estCost = (rate && unitRate != null) ? unitRate * (r.tokenCount || 0) : null;
-    return { ...r, schedule, nextTwo, overdueCount, dueSoonCount, completedCount, remaining, unitRate, estCost };
+    const estCost = (unitRate != null && durationHours != null) ? unitRate * durationHours : null;
+    return { ...r, schedule, nextTwo, overdueCount, dueSoonCount, completedCount, remaining, hourTier, durationHours, unitRate, estCost };
   }), [requests, rateCard]);
 
   const upcomingFeed = useMemo(() => {
@@ -862,7 +891,10 @@ function Dashboard() {
   }, [enriched]);
 
   const openRequests = useMemo(() =>
-    enriched.filter(r => r.remaining > 0).sort((a, b) => a.requestDate < b.requestDate ? 1 : a.requestDate > b.requestDate ? -1 : 0),
+    enriched.filter(r => r.type === "adhoc" && r.remaining > 0).sort((a, b) => a.requestDate < b.requestDate ? 1 : a.requestDate > b.requestDate ? -1 : 0),
+  [enriched]);
+  const activeTokenRequests = useMemo(() =>
+    enriched.filter(r => r.type === "token").sort((a, b) => a.requestDate < b.requestDate ? 1 : a.requestDate > b.requestDate ? -1 : 0),
   [enriched]);
   const completedRequests = useMemo(() =>
     enriched.filter(r => r.remaining === 0).sort((a, b) => a.requestDate < b.requestDate ? 1 : a.requestDate > b.requestDate ? -1 : 0),
@@ -884,11 +916,11 @@ function Dashboard() {
 
   const exportRequestsCsv = () => {
     if (!isAdmin) return;
-    const header = ["Reference No", "Client", "City", "Address", "Region", "Type", "Token Unit", "Amount of Tokens", "Rate ($)", "Est. Cost ($)", "Request Date", "Description"];
+    const header = ["Reference No", "Client", "City", "Address", "Region", "Type", "Rate Tier", "Amount of Tokens", "Rate ($)", "Est. Cost ($)", "Request Date", "Start Time", "End Time", "Description"];
     const rows = enriched.map(r => {
       const isTok = r.type === "token";
-      const tokenUnitLabel = isTok
-        ? (r.unitType === "hour" ? (HOUR_TIERS.find(t => t.value === r.hourTier) || HOUR_TIERS[0]).label : "1x Man")
+      const tokenUnitLabel = isTok && r.hourTier
+        ? (HOUR_TIERS.find(t => t.value === r.hourTier) || HOUR_TIERS[0]).label
         : "";
       return [
         r.refNo, r.client, r.city || "", r.address, r.region || "",
@@ -898,6 +930,8 @@ function Dashboard() {
         isTok && r.unitRate != null ? r.unitRate : "",
         isTok && r.estCost != null ? r.estCost : "",
         r.requestDate,
+        r.startTime || "",
+        r.endTime || "",
         r.scope || ""
       ];
     });
@@ -1082,6 +1116,21 @@ function Dashboard() {
           ) : (
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))", gap: 14 }}>
               {openRequests.map(r => (
+                <RequestCard key={r.id} r={r} isAdmin={isAdmin} isUser={isUser}
+                  onEdit={() => openEdit(r)} onDelete={() => setConfirmDelete(r.id)}
+                  onSetDate={setSlotDate} onToggleDone={toggleSlotDone} />
+              ))}
+            </div>
+          )}
+        </section>
+
+        <section style={{ marginTop: 40 }}>
+          <SectionHeader title="Active Tokens" sub={`${activeTokenRequests.length} on file`} />
+          {activeTokenRequests.length === 0 ? (
+            <EmptyRow text="No active token requests." />
+          ) : (
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))", gap: 14 }}>
+              {activeTokenRequests.map(r => (
                 <RequestCard key={r.id} r={r} isAdmin={isAdmin} isUser={isUser}
                   onEdit={() => openEdit(r)} onDelete={() => setConfirmDelete(r.id)}
                   onSetDate={setSlotDate} onToggleDone={toggleSlotDone} />
@@ -1440,73 +1489,11 @@ function Dashboard() {
             </Field>
 
             {form.type === "token" && (
-              <React.Fragment>
-                <Field label="Amount of Tokens" error={fieldErrors.tokenCount}>
-                  <input type="number" min="1" value={form.tokenCount}
-                    onChange={e => setForm({ ...form, tokenCount: e.target.value })}
-                    style={fieldErrors.tokenCount ? { ...inputStyle, border: "1px solid #F2545B" } : inputStyle} />
-                </Field>
-
-                {!includeRateInputs && (
-                <Field label="Token unit">
-                  <div style={{ display: "flex", gap: 8 }}>
-                    <button type="button" className="type-btn" onClick={() => setForm({ ...form, unitType: "man" })}
-                      style={{
-                        flex: 1, padding: "12px 0", borderRadius: 8, fontWeight: 600, fontSize: 14,
-                        border: form.unitType === "man" ? "1px solid #4ADE9C" : "1px solid #262B27",
-                        background: form.unitType === "man" ? "#4ADE9C22" : "transparent",
-                        color: form.unitType === "man" ? "#4ADE9C" : "#8B948E"
-                      }}>1x Man</button>
-                    <button type="button" className="type-btn" onClick={() => setForm({ ...form, unitType: "hour" })}
-                      style={{
-                        flex: 1, padding: "12px 0", borderRadius: 8, fontWeight: 600, fontSize: 14,
-                        border: form.unitType === "hour" ? "1px solid #6E9FB0" : "1px solid #262B27",
-                        background: form.unitType === "hour" ? "#6E9FB022" : "transparent",
-                        color: form.unitType === "hour" ? "#6E9FB0" : "#8B948E"
-                      }}>Per Hour</button>
-                  </div>
-
-                  {form.unitType === "hour" && (
-                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6, marginTop: 10 }}>
-                      {HOUR_TIERS.map(tier => (
-                        <button key={tier.value} type="button" className="type-btn" onClick={() => setForm({ ...form, hourTier: tier.value })}
-                          style={{
-                            padding: "9px 4px", borderRadius: 7, fontWeight: 600, fontSize: 11.5,
-                            border: form.hourTier === tier.value ? "1px solid #6E9FB0" : "1px solid #262B27",
-                            background: form.hourTier === tier.value ? "#6E9FB022" : "transparent",
-                            color: form.hourTier === tier.value ? "#6E9FB0" : "#8B948E"
-                          }}>{tier.label}</button>
-                      ))}
-                    </div>
-                  )}
-
-                  {(() => {
-                    const matched = findRate(rateCard, form.client, form.city);
-                    if (!matched) return (
-                      <div className="mono" style={{ fontSize: 10.5, color: "#8B948E", marginTop: 7 }}>
-                        No rate card entry for this client/city yet.
-                      </div>
-                    );
-                    let rate, unitLabel;
-                    if (form.unitType === "hour") {
-                      const tier = HOUR_TIERS.find(t => t.value === form.hourTier) || HOUR_TIERS[0];
-                      rate = matched[tier.rateField];
-                      unitLabel = `hour (${tier.label.toLowerCase()})`;
-                    } else {
-                      rate = matched.manRate;
-                      unitLabel = "man";
-                    }
-                    return (
-                      <div className="mono" style={{ fontSize: 10.5, color: "#6E9FB0", marginTop: 7 }}>
-                        {rate != null
-                          ? `Rate on file: ${rate} per ${unitLabel} · est. ${(rate * slotCountFor(form)).toLocaleString()} total`
-                          : `No rate on file for this client's ${unitLabel} unit.`}
-                      </div>
-                    );
-                  })()}
-                </Field>
-                )}
-              </React.Fragment>
+              <Field label="Amount of Tokens" error={fieldErrors.tokenCount}>
+                <input type="number" min="1" value={form.tokenCount}
+                  onChange={e => setForm({ ...form, tokenCount: e.target.value })}
+                  style={fieldErrors.tokenCount ? { ...inputStyle, border: "1px solid #F2545B" } : inputStyle} />
+              </Field>
             )}
 
             {includeRateInputs && (
@@ -1545,6 +1532,50 @@ function Dashboard() {
                 <TextInput type="date" value={form.requestDate} onChange={v => setForm({ ...form, requestDate: v })} error={!!fieldErrors.requestDate} />
               </Field>
             )}
+            {!includeRateInputs && (
+              <div style={{ display: "flex", gap: 10 }}>
+                <div style={{ flex: 1 }}>
+                  <Field label="Start time" error={fieldErrors.startTime}>
+                    <TextInput type="time" value={form.startTime} onChange={v => setForm({ ...form, startTime: v })} error={!!fieldErrors.startTime} />
+                  </Field>
+                </div>
+                <div style={{ flex: 1 }}>
+                  <Field label="End time" error={fieldErrors.endTime}>
+                    <TextInput type="time" value={form.endTime} onChange={v => setForm({ ...form, endTime: v })} error={!!fieldErrors.endTime} />
+                  </Field>
+                </div>
+              </div>
+            )}
+            {!includeRateInputs && form.type === "token" && (() => {
+              const tier = deriveHourTier(form.requestDate, form.startTime);
+              const hours = hoursBetween(form.startTime, form.endTime);
+              if (!tier || hours == null) return (
+                <div className="mono" style={{ fontSize: 10.5, color: "#8B948E" }}>
+                  Fill in start and end time to see the rate tier and estimated cost.
+                </div>
+              );
+              const tierInfo = HOUR_TIERS.find(t => t.value === tier) || HOUR_TIERS[0];
+              const matched = findRate(rateCard, form.client, form.city);
+              const rate = matched ? matched[tierInfo.rateField] : null;
+              const existing = editingId ? requests.find(rq => rq.id === editingId) : null;
+              const finalCount = finalTokenCountFor(form, existing);
+              const willDeduct = finalCount !== (parseInt(form.tokenCount, 10) || 0);
+              return (
+                <div className="mono" style={{ fontSize: 10.5, color: "#6E9FB0" }}>
+                  <div>
+                    {tierInfo.label} · {hours}h
+                    {rate != null
+                      ? ` · rate on file: ${rate}/hr · est. ${(rate * hours).toLocaleString()} total`
+                      : " · no rate on file for this client/city + tier."}
+                  </div>
+                  {willDeduct && (
+                    <div style={{ marginTop: 3, color: "#4ADE9C" }}>
+                      Balance on save: {finalCount.toLocaleString()} ({form.tokenCount} − {hours}h worked)
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
             {formSaveError && <div style={{ color: "#F2545B", fontSize: 12.5 }}>{formSaveError}</div>}
           </div>
 
@@ -1638,7 +1669,7 @@ function RequestCard({ r, isAdmin, isUser, onEdit, onDelete, onSetDate, onToggle
           <div className="mono" style={{ color: "#8B948E", fontSize: 10 }}>TYPE</div>
           <div className="mono" style={{ display: "flex", alignItems: "center", gap: 5, color: isToken ? "#6E9FB0" : "#4ADE9C" }}>
             <Ticket size={12} /> {isToken
-              ? `TOKEN × ${r.tokenCount} · ${r.unitType === "hour" ? (HOUR_TIERS.find(t => t.value === r.hourTier) || HOUR_TIERS[0]).label.toUpperCase() : "1X MAN"}`
+              ? `TOKEN × ${r.tokenCount}${r.hourTier ? " · " + (HOUR_TIERS.find(t => t.value === r.hourTier) || HOUR_TIERS[0]).label.toUpperCase() : ""}`
               : "ADHOC"}
           </div>
         </div>
@@ -1646,6 +1677,12 @@ function RequestCard({ r, isAdmin, isUser, onEdit, onDelete, onSetDate, onToggle
           <div className="mono" style={{ color: "#8B948E", fontSize: 10 }}>REQUESTED</div>
           <div className="mono">{fmtShort(r.requestDate)}</div>
         </div>
+        {(r.startTime || r.endTime) && (
+          <div>
+            <div className="mono" style={{ color: "#8B948E", fontSize: 10 }}>TIME</div>
+            <div className="mono">{r.startTime || "?"} – {r.endTime || "?"}</div>
+          </div>
+        )}
         {isToken && (
           <div>
             <div className="mono" style={{ color: "#8B948E", fontSize: 10 }}>TOKEN BALANCE</div>
@@ -1744,10 +1781,10 @@ const dateInputStyle = { background: "#0B0E0C", border: "1px solid #262B27", bor
 
 function TextInput({ value, onChange, placeholder, type = "text", uppercase = false, error = false }) {
   const base = uppercase ? { ...inputStyle, textTransform: "uppercase" } : inputStyle;
-  const withCursor = type === "date" ? { ...base, cursor: "pointer" } : base;
+  const withCursor = (type === "date" || type === "time") ? { ...base, cursor: "pointer" } : base;
   return (
     <input type={type} value={value} onChange={e => onChange(uppercase ? e.target.value.toUpperCase() : e.target.value)}
-      onClick={e => { if (type === "date" && e.target.showPicker) { try { e.target.showPicker(); } catch (err) {} } }}
+      onClick={e => { if ((type === "date" || type === "time") && e.target.showPicker) { try { e.target.showPicker(); } catch (err) {} } }}
       placeholder={placeholder} style={error ? { ...withCursor, border: "1px solid #F2545B" } : withCursor} />
   );
 }
