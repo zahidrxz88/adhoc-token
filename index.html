@@ -1465,73 +1465,11 @@ function Dashboard() {
             </Field>
 
             {form.type === "token" && (
-              <React.Fragment>
-                <Field label="Amount of Tokens" error={fieldErrors.tokenCount}>
-                  <input type="number" min="1" value={form.tokenCount}
-                    onChange={e => setForm({ ...form, tokenCount: e.target.value })}
-                    style={fieldErrors.tokenCount ? { ...inputStyle, border: "1px solid #F2545B" } : inputStyle} />
-                </Field>
-
-                {!includeRateInputs && (
-                <Field label="Token unit">
-                  <div style={{ display: "flex", gap: 8 }}>
-                    <button type="button" className="type-btn" onClick={() => setForm({ ...form, unitType: "man" })}
-                      style={{
-                        flex: 1, padding: "12px 0", borderRadius: 8, fontWeight: 600, fontSize: 14,
-                        border: form.unitType === "man" ? "1px solid #4ADE9C" : "1px solid #262B27",
-                        background: form.unitType === "man" ? "#4ADE9C22" : "transparent",
-                        color: form.unitType === "man" ? "#4ADE9C" : "#8B948E"
-                      }}>1x Man</button>
-                    <button type="button" className="type-btn" onClick={() => setForm({ ...form, unitType: "hour" })}
-                      style={{
-                        flex: 1, padding: "12px 0", borderRadius: 8, fontWeight: 600, fontSize: 14,
-                        border: form.unitType === "hour" ? "1px solid #6E9FB0" : "1px solid #262B27",
-                        background: form.unitType === "hour" ? "#6E9FB022" : "transparent",
-                        color: form.unitType === "hour" ? "#6E9FB0" : "#8B948E"
-                      }}>Per Hour</button>
-                  </div>
-
-                  {form.unitType === "hour" && (
-                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6, marginTop: 10 }}>
-                      {HOUR_TIERS.map(tier => (
-                        <button key={tier.value} type="button" className="type-btn" onClick={() => setForm({ ...form, hourTier: tier.value })}
-                          style={{
-                            padding: "9px 4px", borderRadius: 7, fontWeight: 600, fontSize: 11.5,
-                            border: form.hourTier === tier.value ? "1px solid #6E9FB0" : "1px solid #262B27",
-                            background: form.hourTier === tier.value ? "#6E9FB022" : "transparent",
-                            color: form.hourTier === tier.value ? "#6E9FB0" : "#8B948E"
-                          }}>{tier.label}</button>
-                      ))}
-                    </div>
-                  )}
-
-                  {(() => {
-                    const matched = findRate(rateCard, form.client, form.city);
-                    if (!matched) return (
-                      <div className="mono" style={{ fontSize: 10.5, color: "#8B948E", marginTop: 7 }}>
-                        No rate card entry for this client/city yet.
-                      </div>
-                    );
-                    let rate, unitLabel;
-                    if (form.unitType === "hour") {
-                      const tier = HOUR_TIERS.find(t => t.value === form.hourTier) || HOUR_TIERS[0];
-                      rate = matched[tier.rateField];
-                      unitLabel = `hour (${tier.label.toLowerCase()})`;
-                    } else {
-                      rate = matched.manRate;
-                      unitLabel = "man";
-                    }
-                    return (
-                      <div className="mono" style={{ fontSize: 10.5, color: "#6E9FB0", marginTop: 7 }}>
-                        {rate != null
-                          ? `Rate on file: ${rate} per ${unitLabel} · est. ${(rate * slotCountFor(form)).toLocaleString()} total`
-                          : `No rate on file for this client's ${unitLabel} unit.`}
-                      </div>
-                    );
-                  })()}
-                </Field>
-                )}
-              </React.Fragment>
+              <Field label="Amount of Tokens" error={fieldErrors.tokenCount}>
+                <input type="number" min="1" value={form.tokenCount}
+                  onChange={e => setForm({ ...form, tokenCount: e.target.value })}
+                  style={fieldErrors.tokenCount ? { ...inputStyle, border: "1px solid #F2545B" } : inputStyle} />
+              </Field>
             )}
 
             {includeRateInputs && (
