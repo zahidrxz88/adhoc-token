@@ -205,10 +205,8 @@ function findRate(rateCard, client, city) {
   const tNeedle = city.trim().toLowerCase();
   return rateCard.find(r => r.client.trim().toLowerCase() === cNeedle && (r.city || "").trim().toLowerCase() === tNeedle) || null;
 }
-function citiesForClient(rateCard, client) {
-  if (!client) return [];
-  const needle = client.trim().toLowerCase();
-  return rateCard.filter(r => r.client.trim().toLowerCase() === needle).map(r => r.city).filter(Boolean);
+function allCities(rateCard) {
+  return [...new Set(rateCard.map(r => r.city).filter(Boolean))].sort();
 }
 const BUSINESS_HOURS_START = "09:00";
 const BUSINESS_HOURS_END = "18:00";
@@ -1441,27 +1439,27 @@ function Dashboard() {
                 </select>
               )}
             </Field>
-            {!includeRateInputs && (
-              <Field label="City" error={fieldErrors.city}>
-                <input list="city-options" value={form.city} onChange={e => setForm({ ...form, city: e.target.value.toUpperCase() })}
-                  placeholder="E.G. TOKYO" style={fieldErrors.city ? { ...inputStyle, border: "1px solid #F2545B" } : inputStyle} />
-                <datalist id="city-options">
-                  {citiesForClient(rateCard, form.client).map(city => <option key={city} value={city} />)}
-                </datalist>
-                <div className="mono" style={{ fontSize: 10.5, color: "#8B948E", marginTop: 6 }}>
-                  Rate is matched by client + city. Pick an existing city for this client to pull its rate, or enter a new one.
-                </div>
-              </Field>
-            )}
-            <Field label="Address" error={fieldErrors.address}>
-              <TextInput value={form.address} onChange={v => setForm({ ...form, address: v })} placeholder="E.G. XYZ STREET 12" uppercase error={!!fieldErrors.address} />
-            </Field>
             <Field label="Region" error={fieldErrors.region}>
               <select value={form.region} onChange={e => setForm({ ...form, region: e.target.value })}
                 style={fieldErrors.region ? { ...selectStyle, border: "1px solid #F2545B", textTransform: "uppercase" } : { ...selectStyle, textTransform: "uppercase" }}>
                 <option value="">Select a country</option>
                 {COUNTRIES.map(country => <option key={country} value={country}>{country}</option>)}
               </select>
+            </Field>
+            {!includeRateInputs && (
+              <Field label="City" error={fieldErrors.city}>
+                <input list="city-options" value={form.city} onChange={e => setForm({ ...form, city: e.target.value.toUpperCase() })}
+                  placeholder="E.G. TOKYO" style={fieldErrors.city ? { ...inputStyle, border: "1px solid #F2545B" } : inputStyle} />
+                <datalist id="city-options">
+                  {allCities(rateCard).map(city => <option key={city} value={city} />)}
+                </datalist>
+                <div className="mono" style={{ fontSize: 10.5, color: "#8B948E", marginTop: 6 }}>
+                  Rate is matched by client + city. Pick an existing city to pull its rate, or enter a new one.
+                </div>
+              </Field>
+            )}
+            <Field label="Site Address" error={fieldErrors.address}>
+              <TextInput value={form.address} onChange={v => setForm({ ...form, address: v })} placeholder="E.G. XYZ STREET 12" uppercase error={!!fieldErrors.address} />
             </Field>
             <Field label="Description">
               <textarea value={form.scope} onChange={e => setForm({ ...form, scope: e.target.value.toUpperCase() })}
@@ -1506,7 +1504,7 @@ function Dashboard() {
                   <input list="city-options" value={form.city} onChange={e => setForm({ ...form, city: e.target.value.toUpperCase() })}
                     placeholder="E.G. TOKYO" style={fieldErrors.city ? { ...inputStyle, border: "1px solid #F2545B" } : inputStyle} />
                   <datalist id="city-options">
-                    {citiesForClient(rateCard, form.client).map(city => <option key={city} value={city} />)}
+                    {allCities(rateCard).map(city => <option key={city} value={city} />)}
                   </datalist>
                 </Field>
                 <Field label="Amount ($) per hour · Weekday Business Hours" error={rateInputErrors.hourRateWeekdayBiz}>
