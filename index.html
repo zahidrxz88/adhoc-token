@@ -219,17 +219,23 @@ function hoursBetween(startTime, endTime) {
   const mins = (eh * 60 + em) - (sh * 60 + sm);
   return mins > 0 ? mins / 60 : null;
 }
-// deducts hours worked (start->end) from the existing token balance, but only when the
-// start/end time is newly set or changed vs. what's already stored -- editing a
-// token request without touching the time fields must not deduct the same job twice.
-function finalTokenCountFor(form, existing) {
+// deducts the dollar cost (hours worked x the matching rate-card hourly rate) from the
+// existing balance, but only when the start/end time is newly set or changed vs. what's
+// already stored -- editing a token request without touching the time fields must not
+// deduct the same job twice. No rate on file for the client/city/tier -> no deduction.
+function finalTokenCountFor(form, existing, rateCard) {
   const base = existing ? (existing.tokenCount || 0) : 0;
   const prevStart = existing ? (existing.startTime || "") : "";
   const prevEnd = existing ? (existing.endTime || "") : "";
   if (form.startTime === prevStart && form.endTime === prevEnd) return base;
   const hrs = hoursBetween(form.startTime, form.endTime);
   if (hrs == null) return base;
-  return Math.round(Math.max(0, base - hrs) * 100) / 100;
+  const tier = deriveHourTier(form.requestDate, form.startTime);
+  const tierInfo = HOUR_TIERS.find(t => t.value === tier) || HOUR_TIERS[0];
+  const matched = findRate(rateCard, form.client, form.city);
+  const rate = matched ? matched[tierInfo.rateField] : null;
+  if (rate == null) return base;
+  return Math.round(Math.max(0, base - rate * hrs) * 100) / 100;
 }
 // a token request is an "account" (Active Tokens) only from the new-client flow, not a
 // regular Add Request (which is a job, even for Token type). Legacy rows saved before this
@@ -659,7 +665,7 @@ function Dashboard() {
     if (form.startTime && form.endTime && form.endTime <= form.startTime) errs.endTime = "End time must be after start time";
     if (includeRateInputs) {
       const n = parseInt(form.tokenCount, 10);
-      if (!Number.isFinite(n) || n < 1) errs.tokenCount = "Enter a starting token amount of 1 or more";
+      if (!Number.isFinite(n) || n < 1) errs.tokenCount = "Enter a starting amount of $1 or more";
     }
     setFieldErrors(errs);
 
@@ -686,13 +692,13 @@ function Dashboard() {
       newRequests = requests.map(r => {
         if (r.id !== editingId) return r;
         const schedule = r.type !== form.type ? buildSlots(form, r.schedule || []) : r.schedule;
-        const tokenCount = form.type === "token" ? finalTokenCountFor(form, r) : slotCountFor(form);
+        const tokenCount = form.type === "token" ? finalTokenCountFor(form, r, rateCard) : slotCountFor(form);
         return { ...r, ...form, tokenCount, schedule };
       });
     } else {
       const tokenCount = form.type !== "token" ? slotCountFor(form)
         : includeRateInputs ? Math.max(0, parseInt(form.tokenCount, 10) || 0)
-        : finalTokenCountFor(form, null);
+        : finalTokenCountFor(form, null, rateCard);
       // only the "new client" flow (Top Up Tokens -> new client) creates a token account;
       // a normal Add Request (even Token type, for an existing client) is a job, not an account
       newRequests = [...requests, { id: uid(), ...form, tokenCount, isAccount: includeRateInputs, schedule: buildSlots(form, []) }];
@@ -953,7 +959,7 @@ function Dashboard() {
 
   const exportRequestsCsv = () => {
     if (!isAdmin) return;
-    const header = ["Reference No", "Client", "City", "Address", "Region", "Type", "Rate Tier", "Amount of Tokens", "Rate ($)", "Est. Cost ($)", "Request Date", "Start Time", "End Time", "Description"];
+    const header = ["Reference No", "Client", "City", "Address", "Region", "Type", "Rate Tier", "Balance ($)", "Rate ($)", "Est. Cost ($)", "Request Date", "Start Time", "End Time", "Description"];
     const rows = enriched.map(r => {
       const isTok = r.type === "token";
       const tokenUnitLabel = isTok && r.hourTier
@@ -1486,11 +1492,11 @@ function Dashboard() {
                       <select value={topUpRequestId} onChange={e => { setTopUpRequestId(e.target.value); setTopUpError(""); }} style={selectStyle}>
                         <option value="">Please select a request</option>
                         {requests.filter(isTokenAccount).map(r => (
-                          <option key={r.id} value={r.id}>{r.client} · {r.refNo} (balance: {r.tokenCount})</option>
+                          <option key={r.id} value={r.id}>{r.client} · {r.refNo} (balance: ${r.tokenCount.toLocaleString()})</option>
                         ))}
                       </select>
                     </Field>
-                    <Field label="Amount to top up">
+                    <Field label="Amount to top up ($)">
                       <input type="number" min="1" value={topUpAmount}
                         onChange={e => { setTopUpAmount(e.target.value); setTopUpError(""); }}
                         style={inputStyle} placeholder="E.G. 5" />
@@ -1612,7 +1618,7 @@ function Dashboard() {
                     onChange={e => setRateInputs({ ...rateInputs, hourRateWeekend: e.target.value })}
                     style={rateInputErrors.hourRateWeekend ? { ...inputStyle, border: "1px solid #F2545B" } : inputStyle} />
                 </Field>
-                <Field label="Starting Amount of Tokens" error={fieldErrors.tokenCount}>
+                <Field label="Starting Amount ($)" error={fieldErrors.tokenCount}>
                   <input type="number" min="1" value={form.tokenCount}
                     onChange={e => setForm({ ...form, tokenCount: e.target.value })}
                     style={fieldErrors.tokenCount ? { ...inputStyle, border: "1px solid #F2545B" } : inputStyle} />
@@ -1652,18 +1658,21 @@ function Dashboard() {
               const rate = matched ? matched[tierInfo.rateField] : null;
               const existing = editingId ? requests.find(rq => rq.id === editingId) : null;
               const currentBalance = existing ? (existing.tokenCount || 0) : 0;
-              const finalCount = finalTokenCountFor(form, existing);
+              const finalCount = finalTokenCountFor(form, existing, rateCard);
+              const cost = rate != null ? rate * hours : null;
               return (
                 <div className="mono" style={{ fontSize: 10.5, color: "#6E9FB0" }}>
                   <div>
                     {tierInfo.label} · {hours}h
                     {rate != null
-                      ? ` · rate on file: ${rate}/hr · est. ${(rate * hours).toLocaleString()} total`
-                      : " · no rate on file for this client/city + tier."}
+                      ? ` · rate on file: $${rate}/hr · est. $${cost.toLocaleString()} total`
+                      : " · no rate on file for this client/city + tier — nothing will be deducted."}
                   </div>
-                  <div style={{ marginTop: 3, color: "#4ADE9C" }}>
-                    Balance on save: {finalCount.toLocaleString()} ({currentBalance.toLocaleString()} − {hours}h worked)
-                  </div>
+                  {cost != null && (
+                    <div style={{ marginTop: 3, color: "#4ADE9C" }}>
+                      Balance on save: ${finalCount.toLocaleString()} (${currentBalance.toLocaleString()} − ${cost.toLocaleString()})
+                    </div>
+                  )}
                 </div>
               );
             })()}
@@ -1760,7 +1769,7 @@ function RequestCard({ r, isAdmin, isUser, onEdit, onDelete, onSetDate }) {
           <div className="mono" style={{ color: "#8B948E", fontSize: 10 }}>TYPE</div>
           <div className="mono" style={{ display: "flex", alignItems: "center", gap: 5, color: isToken ? "#6E9FB0" : "#4ADE9C" }}>
             <Ticket size={12} /> {isToken
-              ? `TOKEN × ${r.tokenCount}${r.hourTier ? " · " + (HOUR_TIERS.find(t => t.value === r.hourTier) || HOUR_TIERS[0]).label.toUpperCase() : ""}`
+              ? `TOKEN${r.hourTier ? " · " + (HOUR_TIERS.find(t => t.value === r.hourTier) || HOUR_TIERS[0]).label.toUpperCase() : ""}`
               : "ADHOC"}
           </div>
         </div>
@@ -1776,8 +1785,8 @@ function RequestCard({ r, isAdmin, isUser, onEdit, onDelete, onSetDate }) {
         )}
         {isToken && (
           <div>
-            <div className="mono" style={{ color: "#8B948E", fontSize: 10 }}>TOKEN BALANCE</div>
-            <div className="mono" style={{ color: "#4ADE9C" }}>{r.tokenCount}</div>
+            <div className="mono" style={{ color: "#8B948E", fontSize: 10 }}>BALANCE</div>
+            <div className="mono" style={{ color: "#4ADE9C" }}>${r.tokenCount.toLocaleString()}</div>
           </div>
         )}
         {isToken && r.estCost != null && (
