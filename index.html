@@ -225,6 +225,19 @@ function hoursBetween(startTime, endTime) {
   const mins = (eh * 60 + em) - (sh * 60 + sm);
   return mins > 0 ? mins / 60 : null;
 }
+// deducts hours worked (start->end) from the typed token count, but only when the
+// start/end time is newly set or changed vs. what's already stored -- editing a
+// token request without touching the time fields must not deduct the same job twice.
+function finalTokenCountFor(form, existing) {
+  const n = parseInt(form.tokenCount, 10);
+  const base = Number.isFinite(n) && n > 0 ? n : 1;
+  const prevStart = existing ? (existing.startTime || "") : "";
+  const prevEnd = existing ? (existing.endTime || "") : "";
+  if (form.startTime === prevStart && form.endTime === prevEnd) return base;
+  const hrs = hoursBetween(form.startTime, form.endTime);
+  if (hrs == null) return base;
+  return Math.round(Math.max(0, base - hrs) * 100) / 100;
+}
 const ROLE_COLOR = { superadmin: "#4ADE9C", admin: "#6E9FB0", guest: "#8B948E" };
 const ROLE_LABEL = { superadmin: "Super Admin", admin: "Admin", guest: "Guest" };
 function initials(first, last) {
@@ -636,10 +649,12 @@ function Dashboard() {
         if (r.id !== editingId) return r;
         const changed = r.type !== form.type || Number(form.tokenCount) !== r.tokenCount;
         const schedule = changed ? buildSlots(form, r.schedule || []) : r.schedule;
-        return { ...r, ...form, tokenCount: slotCountFor(form), schedule };
+        const tokenCount = form.type === "token" ? finalTokenCountFor(form, r) : slotCountFor(form);
+        return { ...r, ...form, tokenCount, schedule };
       });
     } else {
-      newRequests = [...requests, { id: uid(), ...form, tokenCount: slotCountFor(form), schedule: buildSlots(form, []) }];
+      const tokenCount = form.type === "token" ? finalTokenCountFor(form, null) : slotCountFor(form);
+      newRequests = [...requests, { id: uid(), ...form, tokenCount, schedule: buildSlots(form, []) }];
     }
 
     let newRateCard = rateCard;
@@ -1542,12 +1557,22 @@ function Dashboard() {
               const tierInfo = HOUR_TIERS.find(t => t.value === tier) || HOUR_TIERS[0];
               const matched = findRate(rateCard, form.client, form.city);
               const rate = matched ? matched[tierInfo.rateField] : null;
+              const existing = editingId ? requests.find(rq => rq.id === editingId) : null;
+              const finalCount = finalTokenCountFor(form, existing);
+              const willDeduct = finalCount !== (parseInt(form.tokenCount, 10) || 0);
               return (
                 <div className="mono" style={{ fontSize: 10.5, color: "#6E9FB0" }}>
-                  {tierInfo.label} · {hours}h
-                  {rate != null
-                    ? ` · rate on file: ${rate}/hr · est. ${(rate * hours).toLocaleString()} total`
-                    : " · no rate on file for this client/city + tier."}
+                  <div>
+                    {tierInfo.label} · {hours}h
+                    {rate != null
+                      ? ` · rate on file: ${rate}/hr · est. ${(rate * hours).toLocaleString()} total`
+                      : " · no rate on file for this client/city + tier."}
+                  </div>
+                  {willDeduct && (
+                    <div style={{ marginTop: 3, color: "#4ADE9C" }}>
+                      Balance on save: {finalCount.toLocaleString()} ({form.tokenCount} − {hours}h worked)
+                    </div>
+                  )}
                 </div>
               );
             })()}
