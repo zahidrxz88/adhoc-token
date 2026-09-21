@@ -867,7 +867,10 @@ function Dashboard() {
   }, [enriched]);
 
   const openRequests = useMemo(() =>
-    enriched.filter(r => r.remaining > 0).sort((a, b) => a.requestDate < b.requestDate ? 1 : a.requestDate > b.requestDate ? -1 : 0),
+    enriched.filter(r => r.type === "adhoc" && r.remaining > 0).sort((a, b) => a.requestDate < b.requestDate ? 1 : a.requestDate > b.requestDate ? -1 : 0),
+  [enriched]);
+  const activeTokenRequests = useMemo(() =>
+    enriched.filter(r => r.type === "token").sort((a, b) => a.requestDate < b.requestDate ? 1 : a.requestDate > b.requestDate ? -1 : 0),
   [enriched]);
   const completedRequests = useMemo(() =>
     enriched.filter(r => r.remaining === 0).sort((a, b) => a.requestDate < b.requestDate ? 1 : a.requestDate > b.requestDate ? -1 : 0),
@@ -1089,6 +1092,21 @@ function Dashboard() {
           ) : (
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))", gap: 14 }}>
               {openRequests.map(r => (
+                <RequestCard key={r.id} r={r} isAdmin={isAdmin} isUser={isUser}
+                  onEdit={() => openEdit(r)} onDelete={() => setConfirmDelete(r.id)}
+                  onSetDate={setSlotDate} onToggleDone={toggleSlotDone} />
+              ))}
+            </div>
+          )}
+        </section>
+
+        <section style={{ marginTop: 40 }}>
+          <SectionHeader title="Active Tokens" sub={`${activeTokenRequests.length} on file`} />
+          {activeTokenRequests.length === 0 ? (
+            <EmptyRow text="No active token requests." />
+          ) : (
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))", gap: 14 }}>
+              {activeTokenRequests.map(r => (
                 <RequestCard key={r.id} r={r} isAdmin={isAdmin} isUser={isUser}
                   onEdit={() => openEdit(r)} onDelete={() => setConfirmDelete(r.id)}
                   onSetDate={setSlotDate} onToggleDone={toggleSlotDone} />
