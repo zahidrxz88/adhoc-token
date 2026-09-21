@@ -219,24 +219,6 @@ function hoursBetween(startTime, endTime) {
   const mins = (eh * 60 + em) - (sh * 60 + sm);
   return mins > 0 ? mins / 60 : null;
 }
-// deducts the dollar cost (hours worked x the matching rate-card hourly rate) from the
-// existing balance, but only when the start/end time is newly set or changed vs. what's
-// already stored -- editing a token request without touching the time fields must not
-// deduct the same job twice. No rate on file for the client/city/tier -> no deduction.
-function finalTokenCountFor(form, existing, rateCard) {
-  const base = existing ? (existing.tokenCount || 0) : 0;
-  const prevStart = existing ? (existing.startTime || "") : "";
-  const prevEnd = existing ? (existing.endTime || "") : "";
-  if (form.startTime === prevStart && form.endTime === prevEnd) return base;
-  const hrs = hoursBetween(form.startTime, form.endTime);
-  if (hrs == null) return base;
-  const tier = deriveHourTier(form.requestDate, form.startTime);
-  const tierInfo = HOUR_TIERS.find(t => t.value === tier) || HOUR_TIERS[0];
-  const matched = findRate(rateCard, form.client, form.city);
-  const rate = matched ? matched[tierInfo.rateField] : null;
-  if (rate == null) return base;
-  return Math.round(Math.max(0, base - rate * hrs) * 100) / 100;
-}
 // a token request is an "account" (Active Tokens) only from the new-client flow, not a
 // regular Add Request (which is a job, even for Token type). Legacy rows saved before this
 // flag existed never had Start/End Time either, so treat those as accounts too.
@@ -244,6 +226,56 @@ function isTokenAccount(r) {
   if (r.type !== "token") return false;
   if (typeof r.isAccount === "boolean") return r.isAccount;
   return !r.startTime && !r.endTime;
+}
+// computes the dollar cost (hours x the matching rate-card hourly rate) a token job-request
+// would deduct, without applying it. Returns null when it can't be computed yet.
+function computeJobCost(r, rateCard) {
+  const hrs = hoursBetween(r.startTime, r.endTime);
+  if (hrs == null) return null;
+  const tier = deriveHourTier(r.requestDate, r.startTime);
+  const tierInfo = HOUR_TIERS.find(t => t.value === tier) || HOUR_TIERS[0];
+  const matched = findRate(rateCard, r.client, r.city);
+  const rate = matched ? matched[tierInfo.rateField] : null;
+  if (rate == null) return null;
+  return Math.round(rate * hrs * 100) / 100;
+}
+// finds every token job-request whose Request Date has fully passed and hasn't had its
+// deduction applied yet, and subtracts its dollar cost from the matching client+city
+// Active Tokens account balance. Requests with no computable cost yet (missing hours) are
+// marked applied with $0 so they don't get re-checked forever; requests missing a rate or a
+// matching account are left pending so a later sweep can pick them up once one exists.
+function sweepMaturedDeductions(requests, rateCard) {
+  const today = todayStr();
+  const accountIndexByKey = new Map();
+  requests.forEach((r, i) => {
+    if (isTokenAccount(r)) {
+      const key = r.client.trim().toLowerCase() + "|" + (r.city || "").trim().toLowerCase();
+      if (!accountIndexByKey.has(key)) accountIndexByKey.set(key, i);
+    }
+  });
+  const deltas = new Map();
+  const applied = [];
+  let changed = false;
+  const updated = requests.map(r => {
+    if (r.type !== "token" || isTokenAccount(r) || r.deductionApplied || !(r.requestDate < today)) return r;
+    const hrs = hoursBetween(r.startTime, r.endTime);
+    if (hrs == null) { changed = true; return { ...r, deductionApplied: true, deductedAmount: 0 }; }
+    const cost = computeJobCost(r, rateCard);
+    if (cost == null) return r; // no rate on file yet -- retry on a later sweep
+    const key = r.client.trim().toLowerCase() + "|" + (r.city || "").trim().toLowerCase();
+    const accountIdx = accountIndexByKey.get(key);
+    if (accountIdx == null) return r; // no matching account yet -- retry on a later sweep
+    deltas.set(accountIdx, (deltas.get(accountIdx) || 0) + cost);
+    changed = true;
+    applied.push({ client: r.client, city: r.city, refNo: r.refNo, amount: cost });
+    return { ...r, deductionApplied: true, deductedAmount: cost };
+  });
+  if (!changed) return null;
+  const final = updated.map((r, i) => {
+    if (!deltas.has(i)) return r;
+    return { ...r, tokenCount: Math.round(Math.max(0, (r.tokenCount || 0) - deltas.get(i)) * 100) / 100 };
+  });
+  return { requests: final, applied };
 }
 const ROLE_COLOR = { superadmin: "#4ADE9C", admin: "#6E9FB0", guest: "#8B948E" };
 const ROLE_LABEL = { superadmin: "Super Admin", admin: "Admin", guest: "Guest" };
@@ -434,6 +466,19 @@ function Dashboard() {
       } catch (e) { console.error("save activity failed", e); }
     })();
   }, [activity, loaded]);
+
+  // apply any token job-request deductions whose Request Date has fully passed onto the
+  // matching client+city Active Tokens account. Re-runs whenever requests/rateCard change
+  // (including from the poll below), so it catches things that mature while the app is open.
+  useEffect(() => {
+    if (!loaded || !isAdmin) return;
+    const result = sweepMaturedDeductions(requests, rateCard);
+    if (!result) return;
+    setRequests(result.requests);
+    result.applied.forEach(a => {
+      logActivity("deduction", `Deducted $${a.amount.toLocaleString()} from ${a.client} (${a.city}) for ${a.refNo}`);
+    });
+  }, [loaded, requests, rateCard, isAdmin]);
 
   // presence heartbeat: announce ourselves and prune stale entries every ~15s
   useEffect(() => {
@@ -692,16 +737,17 @@ function Dashboard() {
       newRequests = requests.map(r => {
         if (r.id !== editingId) return r;
         const schedule = r.type !== form.type ? buildSlots(form, r.schedule || []) : r.schedule;
-        const tokenCount = form.type === "token" ? finalTokenCountFor(form, r, rateCard) : slotCountFor(form);
+        // balance only ever changes via Top Up or a matured deduction sweep, never a plain edit
+        const tokenCount = form.type !== "token" ? slotCountFor(form) : r.tokenCount;
         return { ...r, ...form, tokenCount, schedule };
       });
     } else {
       const tokenCount = form.type !== "token" ? slotCountFor(form)
         : includeRateInputs ? Math.max(0, parseInt(form.tokenCount, 10) || 0)
-        : finalTokenCountFor(form, null, rateCard);
+        : 0; // a new job-request has no balance of its own -- deduction lands on the account later
       // only the "new client" flow (Top Up Tokens -> new client) creates a token account;
       // a normal Add Request (even Token type, for an existing client) is a job, not an account
-      newRequests = [...requests, { id: uid(), ...form, tokenCount, isAccount: includeRateInputs, schedule: buildSlots(form, []) }];
+      newRequests = [...requests, { id: uid(), ...form, tokenCount, isAccount: includeRateInputs, deductionApplied: false, deductedAmount: null, schedule: buildSlots(form, []) }];
     }
 
     let newRateCard = rateCard;
@@ -959,17 +1005,19 @@ function Dashboard() {
 
   const exportRequestsCsv = () => {
     if (!isAdmin) return;
-    const header = ["Reference No", "Client", "City", "Address", "Region", "Type", "Rate Tier", "Balance ($)", "Rate ($)", "Est. Cost ($)", "Request Date", "Start Time", "End Time", "Description"];
+    const header = ["Reference No", "Client", "City", "Address", "Region", "Type", "Rate Tier", "Balance ($)", "Deducted ($)", "Rate ($)", "Est. Cost ($)", "Request Date", "Start Time", "End Time", "Description"];
     const rows = enriched.map(r => {
       const isTok = r.type === "token";
+      const isAcct = isTokenAccount(r);
       const tokenUnitLabel = isTok && r.hourTier
         ? (HOUR_TIERS.find(t => t.value === r.hourTier) || HOUR_TIERS[0]).label
         : "";
       return [
         r.refNo, r.client, r.city || "", r.address, r.region || "",
-        isTok ? "Token" : "Adhoc",
+        isTok ? (isAcct ? "Token Account" : "Token Job") : "Adhoc",
         tokenUnitLabel,
-        isTok ? r.tokenCount : "",
+        isAcct ? r.tokenCount : "",
+        isTok && !isAcct && r.deductionApplied ? r.deductedAmount : "",
         isTok && r.unitRate != null ? r.unitRate : "",
         isTok && r.estCost != null ? r.estCost : "",
         r.requestDate,
@@ -1658,10 +1706,10 @@ function Dashboard() {
               const tierInfo = HOUR_TIERS.find(t => t.value === tier) || HOUR_TIERS[0];
               const matched = findRate(rateCard, form.client, form.city);
               const rate = matched ? matched[tierInfo.rateField] : null;
-              const existing = editingId ? requests.find(rq => rq.id === editingId) : null;
-              const currentBalance = existing ? (existing.tokenCount || 0) : 0;
-              const finalCount = finalTokenCountFor(form, existing, rateCard);
-              const cost = rate != null ? rate * hours : null;
+              const cost = rate != null ? Math.round(rate * hours * 100) / 100 : null;
+              const accountKey = form.client.trim().toLowerCase() + "|" + form.city.trim().toLowerCase();
+              const account = requests.find(a => isTokenAccount(a) && a.client.trim().toLowerCase() + "|" + (a.city || "").trim().toLowerCase() === accountKey);
+              const isPast = form.requestDate < todayStr();
               return (
                 <div className="mono" style={{ fontSize: 10.5, color: "#6E9FB0" }}>
                   <div>
@@ -1672,7 +1720,11 @@ function Dashboard() {
                   </div>
                   {cost != null && (
                     <div style={{ marginTop: 3, color: "#4ADE9C" }}>
-                      Balance on save: ${finalCount.toLocaleString()} (${currentBalance.toLocaleString()} − ${cost.toLocaleString()})
+                      {!account
+                        ? `No Active Tokens account for ${form.client} · ${form.city} yet — nothing will be deducted until one exists.`
+                        : isPast
+                          ? `Will deduct $${cost.toLocaleString()} from ${form.client}'s balance (currently $${(account.tokenCount || 0).toLocaleString()}) shortly after saving.`
+                          : `Deducts $${cost.toLocaleString()} from ${form.client}'s balance (currently $${(account.tokenCount || 0).toLocaleString()}) once ${fmtShort(form.requestDate)} has passed.`}
                     </div>
                   )}
                 </div>
@@ -1731,6 +1783,7 @@ function RequestCard({ r, isAdmin, isUser, onEdit, onDelete, onSetDate }) {
   const complete = r.remaining === 0;
   const ledColor = r.overdueCount > 0 ? "#F2545B" : r.dueSoonCount > 0 ? "#F5A623" : "#4ADE9C";
   const isToken = r.type === "token";
+  const isAccount = isTokenAccount(r);
 
   return (
     <div style={{ background: "#0E1210", border: "1px solid #1E2320", borderRadius: 12, padding: "16px 18px", position: "relative" }}>
@@ -1757,7 +1810,7 @@ function RequestCard({ r, isAdmin, isUser, onEdit, onDelete, onSetDate }) {
         {r.city && <span className="mono" style={{ color: "#4ADE9C" }}> · {r.city.toUpperCase()}</span>}
         {r.region && <span className="mono" style={{ color: "#6E9FB0" }}> · {r.region.toUpperCase()}</span>}
       </div>
-      {isToken ? (
+      {isAccount ? (
         <div style={{ display: "flex", alignItems: "center", gap: 5, margin: "-4px 0 10px", color: "#4ADE9C", fontSize: 11.5, fontWeight: 600 }}>
           <span className="jack jack-glow" style={{ background: "#4ADE9C", color: "#4ADE9C", width: 6, height: 6 }} /> ACTIVE TOKEN
         </div>
@@ -1786,16 +1839,20 @@ function RequestCard({ r, isAdmin, isUser, onEdit, onDelete, onSetDate }) {
             <div className="mono">{r.startTime || "?"} – {r.endTime || "?"}</div>
           </div>
         )}
-        {isToken && (
+        {isAccount && (
           <div>
             <div className="mono" style={{ color: "#8B948E", fontSize: 10 }}>BALANCE</div>
             <div className="mono" style={{ color: "#4ADE9C" }}>${r.tokenCount.toLocaleString()}</div>
           </div>
         )}
-        {isToken && r.estCost != null && (
+        {isToken && !isAccount && (
           <div>
-            <div className="mono" style={{ color: "#8B948E", fontSize: 10 }}>EST. COST</div>
-            <div className="mono" style={{ color: "#4ADE9C" }}>{r.estCost.toLocaleString()}</div>
+            <div className="mono" style={{ color: "#8B948E", fontSize: 10 }}>DEDUCTION</div>
+            <div className="mono" style={{ color: r.deductionApplied ? "#4ADE9C" : "#F5A623" }}>
+              {r.deductionApplied
+                ? (r.deductedAmount > 0 ? `-$${r.deductedAmount.toLocaleString()} applied` : "None")
+                : (r.estCost != null ? `Pending · est. $${r.estCost.toLocaleString()}` : "Pending")}
+            </div>
           </div>
         )}
       </div>
