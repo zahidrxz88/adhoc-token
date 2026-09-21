@@ -971,19 +971,23 @@ function Dashboard() {
     return items.sort((a, b) => a.date < b.date ? -1 : 1).slice(0, 2);
   }, [enriched]);
 
+  const isJobRequest = r => (r.type === "adhoc" && r.remaining > 0) || (r.type === "token" && !isTokenAccount(r));
+  const isPastDue = r => r.requestDate < todayStr();
+
   const openRequests = useMemo(() =>
-    enriched.filter(r => (r.type === "adhoc" && r.remaining > 0) || (r.type === "token" && !isTokenAccount(r)))
+    enriched.filter(r => isJobRequest(r) && !isPastDue(r))
+      .sort((a, b) => a.requestDate < b.requestDate ? 1 : a.requestDate > b.requestDate ? -1 : 0),
+  [enriched]);
+  const closedRequests = useMemo(() =>
+    enriched.filter(r => isJobRequest(r) && isPastDue(r))
       .sort((a, b) => a.requestDate < b.requestDate ? 1 : a.requestDate > b.requestDate ? -1 : 0),
   [enriched]);
   const activeTokenRequests = useMemo(() =>
     enriched.filter(isTokenAccount).sort((a, b) => a.requestDate < b.requestDate ? 1 : a.requestDate > b.requestDate ? -1 : 0),
   [enriched]);
-  const completedRequests = useMemo(() =>
-    enriched.filter(r => r.type === "adhoc" && r.remaining === 0).sort((a, b) => a.requestDate < b.requestDate ? 1 : a.requestDate > b.requestDate ? -1 : 0),
-  [enriched]);
 
   const stats = useMemo(() => {
-    const open = enriched.filter(r => (r.type === "adhoc" && r.remaining > 0) || (r.type === "token" && !isTokenAccount(r))).length;
+    const open = enriched.filter(r => isJobRequest(r) && !isPastDue(r)).length;
     const activeTokens = enriched.filter(isTokenAccount).length;
     return { open, activeTokens };
   }, [enriched]);
@@ -1257,6 +1261,20 @@ function Dashboard() {
         </section>
 
         <section style={{ marginTop: 40 }}>
+          <SectionHeader title="Closed Requests" sub={`${closedRequests.length} on file`} />
+          {closedRequests.length === 0 ? (
+            <EmptyRow text="No closed requests." />
+          ) : (
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))", gap: 14 }}>
+              {closedRequests.map(r => (
+                <RequestCard key={r.id} r={r} isAdmin={isAdmin}
+                  onEdit={() => openEdit(r)} onDelete={() => setConfirmDelete(r.id)} />
+              ))}
+            </div>
+          )}
+        </section>
+
+        <section style={{ marginTop: 40 }}>
           <SectionHeader title="Active Tokens" sub={`${activeTokenRequests.length} on file`} />
           {activeTokenRequests.length === 0 ? (
             <EmptyRow text="No active token requests." />
@@ -1269,18 +1287,6 @@ function Dashboard() {
             </div>
           )}
         </section>
-
-        {completedRequests.length > 0 && (
-          <section style={{ marginTop: 40 }}>
-            <SectionHeader title="Completed Requests" sub={`${completedRequests.length} on file`} />
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))", gap: 14 }}>
-              {completedRequests.map(r => (
-                <RequestCard key={r.id} r={r} isAdmin={isAdmin}
-                  onEdit={() => openEdit(r)} onDelete={() => setConfirmDelete(r.id)} />
-              ))}
-            </div>
-          </section>
-        )}
 
         <section style={{ marginTop: 40 }}>
           {(() => {
