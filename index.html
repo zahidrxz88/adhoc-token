@@ -1423,6 +1423,13 @@ function Dashboard() {
             <Field label="Reference No." error={fieldErrors.refNo}>
               <TextInput value={form.refNo} onChange={v => setForm({ ...form, refNo: v })} placeholder="E.G. GVMS01234 / IN1234 / CS4321" uppercase error={!!fieldErrors.refNo} />
             </Field>
+            <Field label="Region" error={fieldErrors.region}>
+              <select value={form.region} onChange={e => setForm({ ...form, region: e.target.value })}
+                style={fieldErrors.region ? { ...selectStyle, border: "1px solid #F2545B", textTransform: "uppercase" } : { ...selectStyle, textTransform: "uppercase" }}>
+                <option value="">Select a country</option>
+                {COUNTRIES.map(country => <option key={country} value={country}>{country}</option>)}
+              </select>
+            </Field>
             <Field label="Client" error={fieldErrors.client}>
               {includeRateInputs ? (
                 <React.Fragment>
@@ -1438,13 +1445,6 @@ function Dashboard() {
                   {clientsList.map(client => <option key={client} value={client}>{client}</option>)}
                 </select>
               )}
-            </Field>
-            <Field label="Region" error={fieldErrors.region}>
-              <select value={form.region} onChange={e => setForm({ ...form, region: e.target.value })}
-                style={fieldErrors.region ? { ...selectStyle, border: "1px solid #F2545B", textTransform: "uppercase" } : { ...selectStyle, textTransform: "uppercase" }}>
-                <option value="">Select a country</option>
-                {COUNTRIES.map(country => <option key={country} value={country}>{country}</option>)}
-              </select>
             </Field>
             {!includeRateInputs && (
               <Field label="City" error={fieldErrors.city}>
