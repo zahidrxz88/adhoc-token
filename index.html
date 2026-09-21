@@ -188,7 +188,7 @@ const emptyForm = {
   startTime: "",
   endTime: ""
 };
-const emptyRateForm = { client: "", city: "", hourRateWeekdayBiz: "", hourRateWeekdayAfter: "", hourRateWeekend: "" };
+const emptyRateForm = { client: "", region: "", city: "", hourRateWeekdayBiz: "", hourRateWeekdayAfter: "", hourRateWeekend: "" };
 const emptyRateInputs = { hourRateWeekdayBiz: "", hourRateWeekdayAfter: "", hourRateWeekend: "" };
 const HOUR_TIERS = [
   { value: "weekday_biz", label: "Weekday Business Hours", rateField: "hourRateWeekdayBiz" },
@@ -693,7 +693,7 @@ function Dashboard() {
       const existing = findRate(rateCard, form.client, form.city);
       newRateCard = existing
         ? rateCard.map(r => r.id !== existing.id ? r : { ...r, ...ratePayload })
-        : [...rateCard, { id: uid(), client: form.client, city: form.city, ...ratePayload }];
+        : [...rateCard, { id: uid(), client: form.client, region: form.region, city: form.city, ...ratePayload }];
     }
 
     let newClientsList = clientsList;
@@ -760,6 +760,7 @@ function Dashboard() {
     if (!isAdmin) return;
     setRateForm({
       client: rate.client,
+      region: rate.region || "",
       city: rate.city || "",
       hourRateWeekdayBiz: String(rate.hourRateWeekdayBiz ?? ""),
       hourRateWeekdayAfter: String(rate.hourRateWeekdayAfter ?? ""),
@@ -782,6 +783,7 @@ function Dashboard() {
     if (!isAdmin) return;
     const errs = {};
     if (!rateForm.client.trim()) errs.client = "Please fill in client";
+    if (!rateForm.region.trim()) errs.region = "Please fill in region";
     if (!rateForm.city.trim()) errs.city = "Please fill in city";
     const dupe = rateCard.some(r =>
       r.id !== editingRateId &&
@@ -803,7 +805,7 @@ function Dashboard() {
     if (Object.keys(errs).length > 0) return;
 
     const payload = {
-      client: rateForm.client, city: rateForm.city,
+      client: rateForm.client, region: rateForm.region, city: rateForm.city,
       hourRateWeekdayBiz: bizH, hourRateWeekdayAfter: afterH, hourRateWeekend: weekendH
     };
     const newRateCard = editingRateId
@@ -1260,7 +1262,10 @@ function Dashboard() {
                   {rates.map((rate, i) => (
                     <div key={rate.id} style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, padding: "14px 16px", background: i % 2 === 0 ? "#0E1210" : "#0B0E0C", borderTop: "1px solid #1E2320", flexWrap: "wrap" }}>
                       <div style={{ minWidth: 0 }}>
-                        <div style={{ fontWeight: 600, fontSize: 13 }}>{rate.city}</div>
+                        <div style={{ fontWeight: 600, fontSize: 13 }}>
+                          {rate.city}
+                          {rate.region && <span className="mono" style={{ color: "#6E9FB0", fontWeight: 400, fontSize: 11 }}> · {rate.region.toUpperCase()}</span>}
+                        </div>
                       </div>
                       <div style={{ display: "flex", gap: 18, fontSize: 12, flexWrap: "wrap" }}>
                         <div>
@@ -1301,6 +1306,13 @@ function Dashboard() {
                 style={rateFieldErrors.client ? { ...selectStyle, border: "1px solid #F2545B", opacity: editingRateId ? 0.6 : 1 } : { ...selectStyle, opacity: editingRateId ? 0.6 : 1 }}>
                 <option value="">Please select client</option>
                 {clientsList.map(client => <option key={client} value={client}>{client}</option>)}
+              </select>
+            </Field>
+            <Field label="Region" error={rateFieldErrors.region}>
+              <select value={rateForm.region} onChange={e => setRateForm({ ...rateForm, region: e.target.value })}
+                style={rateFieldErrors.region ? { ...selectStyle, border: "1px solid #F2545B", textTransform: "uppercase" } : { ...selectStyle, textTransform: "uppercase" }}>
+                <option value="">Select a country</option>
+                {COUNTRIES.map(country => <option key={country} value={country}>{country}</option>)}
               </select>
             </Field>
             <Field label="City" error={rateFieldErrors.city}>
