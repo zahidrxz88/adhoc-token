@@ -231,6 +231,14 @@ function finalTokenCountFor(form, existing) {
   if (hrs == null) return base;
   return Math.round(Math.max(0, base - hrs) * 100) / 100;
 }
+// a token request is an "account" (Active Tokens) only from the new-client flow, not a
+// regular Add Request (which is a job, even for Token type). Legacy rows saved before this
+// flag existed never had Start/End Time either, so treat those as accounts too.
+function isTokenAccount(r) {
+  if (r.type !== "token") return false;
+  if (typeof r.isAccount === "boolean") return r.isAccount;
+  return !r.startTime && !r.endTime;
+}
 const ROLE_COLOR = { superadmin: "#4ADE9C", admin: "#6E9FB0", guest: "#8B948E" };
 const ROLE_LABEL = { superadmin: "Super Admin", admin: "Admin", guest: "Guest" };
 function initials(first, last) {
@@ -685,7 +693,9 @@ function Dashboard() {
       const tokenCount = form.type !== "token" ? slotCountFor(form)
         : includeRateInputs ? Math.max(0, parseInt(form.tokenCount, 10) || 0)
         : finalTokenCountFor(form, null);
-      newRequests = [...requests, { id: uid(), ...form, tokenCount, schedule: buildSlots(form, []) }];
+      // only the "new client" flow (Top Up Tokens -> new client) creates a token account;
+      // a normal Add Request (even Token type, for an existing client) is a job, not an account
+      newRequests = [...requests, { id: uid(), ...form, tokenCount, isAccount: includeRateInputs, schedule: buildSlots(form, []) }];
     }
 
     let newRateCard = rateCard;
@@ -917,18 +927,19 @@ function Dashboard() {
   }, [enriched]);
 
   const openRequests = useMemo(() =>
-    enriched.filter(r => r.type === "adhoc" && r.remaining > 0).sort((a, b) => a.requestDate < b.requestDate ? 1 : a.requestDate > b.requestDate ? -1 : 0),
+    enriched.filter(r => (r.type === "adhoc" && r.remaining > 0) || (r.type === "token" && !isTokenAccount(r)))
+      .sort((a, b) => a.requestDate < b.requestDate ? 1 : a.requestDate > b.requestDate ? -1 : 0),
   [enriched]);
   const activeTokenRequests = useMemo(() =>
-    enriched.filter(r => r.type === "token").sort((a, b) => a.requestDate < b.requestDate ? 1 : a.requestDate > b.requestDate ? -1 : 0),
+    enriched.filter(isTokenAccount).sort((a, b) => a.requestDate < b.requestDate ? 1 : a.requestDate > b.requestDate ? -1 : 0),
   [enriched]);
   const completedRequests = useMemo(() =>
-    enriched.filter(r => r.remaining === 0).sort((a, b) => a.requestDate < b.requestDate ? 1 : a.requestDate > b.requestDate ? -1 : 0),
+    enriched.filter(r => r.type === "adhoc" && r.remaining === 0).sort((a, b) => a.requestDate < b.requestDate ? 1 : a.requestDate > b.requestDate ? -1 : 0),
   [enriched]);
 
   const stats = useMemo(() => {
-    const open = enriched.filter(r => r.type === "adhoc" && r.remaining > 0).length;
-    const activeTokens = enriched.filter(r => r.type === "token").length;
+    const open = enriched.filter(r => (r.type === "adhoc" && r.remaining > 0) || (r.type === "token" && !isTokenAccount(r))).length;
+    const activeTokens = enriched.filter(isTokenAccount).length;
     return { open, activeTokens };
   }, [enriched]);
 
@@ -1466,14 +1477,14 @@ function Dashboard() {
               </div>
             ) : (
               <React.Fragment>
-                {requests.filter(r => r.type === "token").length === 0 ? (
+                {requests.filter(isTokenAccount).length === 0 ? (
                   <div className="mono" style={{ fontSize: 12, color: "#8B948E" }}>No token requests on file yet — start with a new client instead.</div>
                 ) : (
                   <React.Fragment>
                     <Field label="Client / request">
                       <select value={topUpRequestId} onChange={e => { setTopUpRequestId(e.target.value); setTopUpError(""); }} style={selectStyle}>
                         <option value="">Please select a request</option>
-                        {requests.filter(r => r.type === "token").map(r => (
+                        {requests.filter(isTokenAccount).map(r => (
                           <option key={r.id} value={r.id}>{r.client} · {r.refNo} (balance: {r.tokenCount})</option>
                         ))}
                       </select>
@@ -1496,8 +1507,8 @@ function Dashboard() {
                 Continue to Add Request
               </button>
             ) : (
-              <button onClick={submitTopUp} disabled={saving || requests.filter(r => r.type === "token").length === 0}
-                style={{ flex: 1, background: "#4ADE9C", color: "#0B0E0C", border: "none", borderRadius: 8, padding: "11px 0", fontWeight: 600, fontSize: 14, opacity: (saving || requests.filter(r => r.type === "token").length === 0) ? 0.5 : 1 }}>
+              <button onClick={submitTopUp} disabled={saving || requests.filter(isTokenAccount).length === 0}
+                style={{ flex: 1, background: "#4ADE9C", color: "#0B0E0C", border: "none", borderRadius: 8, padding: "11px 0", fontWeight: 600, fontSize: 14, opacity: (saving || requests.filter(isTokenAccount).length === 0) ? 0.5 : 1 }}>
                 {saving ? "Saving…" : "Top up"}
               </button>
             )}
