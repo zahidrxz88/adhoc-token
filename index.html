@@ -144,11 +144,7 @@ const STATUS_COLOR = {
 const uid = () => Math.random().toString(36).slice(2, 10);
 
 function slotCountFor(form) {
-  if (form.type === "token") {
-    const n = parseInt(form.tokenCount, 10);
-    return Number.isFinite(n) && n > 0 ? n : 1;
-  }
-  return 1; // adhoc = single one-off job
+  return 1; // adhoc = single one-off job; token requests are a running balance, not per-token slots
 }
 function buildSlots(form, existing = []) {
   if (form.type === "token") return []; // token requests are a running balance, not per-token dated visits
@@ -187,7 +183,6 @@ const emptyForm = {
   region: "",
   scope: "",
   type: "adhoc",
-  tokenCount: "",
   requestDate: todayStr(),
   startTime: "",
   endTime: ""
@@ -223,12 +218,11 @@ function hoursBetween(startTime, endTime) {
   const mins = (eh * 60 + em) - (sh * 60 + sm);
   return mins > 0 ? mins / 60 : null;
 }
-// deducts hours worked (start->end) from the typed token count, but only when the
+// deducts hours worked (start->end) from the existing token balance, but only when the
 // start/end time is newly set or changed vs. what's already stored -- editing a
 // token request without touching the time fields must not deduct the same job twice.
 function finalTokenCountFor(form, existing) {
-  const n = parseInt(form.tokenCount, 10);
-  const base = Number.isFinite(n) && n > 0 ? n : 1;
+  const base = existing ? (existing.tokenCount || 0) : 0;
   const prevStart = existing ? (existing.startTime || "") : "";
   const prevEnd = existing ? (existing.endTime || "") : "";
   if (form.startTime === prevStart && form.endTime === prevEnd) return base;
@@ -597,7 +591,6 @@ function Dashboard() {
       region: r.region || "",
       scope: r.scope || "",
       type: r.type,
-      tokenCount: String(r.tokenCount || 5),
       requestDate: r.requestDate,
       startTime: r.startTime || "",
       endTime: r.endTime || ""
@@ -617,10 +610,6 @@ function Dashboard() {
     if (!form.region.trim()) errs.region = "Please fill in region";
     if (!form.requestDate) errs.requestDate = "Please fill in request date";
     if (form.startTime && form.endTime && form.endTime <= form.startTime) errs.endTime = "End time must be after start time";
-    if (form.type === "token") {
-      const n = parseInt(form.tokenCount, 10);
-      if (!Number.isFinite(n) || n < 1) errs.tokenCount = "Enter a token count of 1 or more";
-    }
     setFieldErrors(errs);
 
     let rateErrs = {};
@@ -645,8 +634,7 @@ function Dashboard() {
     if (editingId) {
       newRequests = requests.map(r => {
         if (r.id !== editingId) return r;
-        const changed = r.type !== form.type || Number(form.tokenCount) !== r.tokenCount;
-        const schedule = changed ? buildSlots(form, r.schedule || []) : r.schedule;
+        const schedule = r.type !== form.type ? buildSlots(form, r.schedule || []) : r.schedule;
         const tokenCount = form.type === "token" ? finalTokenCountFor(form, r) : slotCountFor(form);
         return { ...r, ...form, tokenCount, schedule };
       });
@@ -1483,14 +1471,6 @@ function Dashboard() {
               </div>
             </Field>
 
-            {form.type === "token" && (
-              <Field label="Amount of Tokens" error={fieldErrors.tokenCount}>
-                <input type="number" min="1" value={form.tokenCount}
-                  onChange={e => setForm({ ...form, tokenCount: e.target.value })}
-                  style={fieldErrors.tokenCount ? { ...inputStyle, border: "1px solid #F2545B" } : inputStyle} />
-              </Field>
-            )}
-
             {includeRateInputs && (
               <div style={{ border: "1px solid #4ADE9C33", borderRadius: 10, padding: 14, display: "grid", gap: 12 }}>
                 <div className="mono" style={{ fontSize: 11, color: "#4ADE9C", letterSpacing: 0.5 }}>RATE CARD FOR THIS CLIENT + CITY</div>
@@ -1527,12 +1507,12 @@ function Dashboard() {
               <div style={{ display: "flex", gap: 10 }}>
                 <div style={{ flex: 1 }}>
                   <Field label="Start time" error={fieldErrors.startTime}>
-                    <TextInput type="time" value={form.startTime} onChange={v => setForm({ ...form, startTime: v })} error={!!fieldErrors.startTime} />
+                    <TextInput type="time" step={3600} value={form.startTime} onChange={v => setForm({ ...form, startTime: v })} error={!!fieldErrors.startTime} />
                   </Field>
                 </div>
                 <div style={{ flex: 1 }}>
                   <Field label="End time" error={fieldErrors.endTime}>
-                    <TextInput type="time" value={form.endTime} onChange={v => setForm({ ...form, endTime: v })} error={!!fieldErrors.endTime} />
+                    <TextInput type="time" step={3600} value={form.endTime} onChange={v => setForm({ ...form, endTime: v })} error={!!fieldErrors.endTime} />
                   </Field>
                 </div>
               </div>
@@ -1549,8 +1529,8 @@ function Dashboard() {
               const matched = findRate(rateCard, form.client, form.city);
               const rate = matched ? matched[tierInfo.rateField] : null;
               const existing = editingId ? requests.find(rq => rq.id === editingId) : null;
+              const currentBalance = existing ? (existing.tokenCount || 0) : 0;
               const finalCount = finalTokenCountFor(form, existing);
-              const willDeduct = finalCount !== (parseInt(form.tokenCount, 10) || 0);
               return (
                 <div className="mono" style={{ fontSize: 10.5, color: "#6E9FB0" }}>
                   <div>
@@ -1559,11 +1539,9 @@ function Dashboard() {
                       ? ` · rate on file: ${rate}/hr · est. ${(rate * hours).toLocaleString()} total`
                       : " · no rate on file for this client/city + tier."}
                   </div>
-                  {willDeduct && (
-                    <div style={{ marginTop: 3, color: "#4ADE9C" }}>
-                      Balance on save: {finalCount.toLocaleString()} ({form.tokenCount} − {hours}h worked)
-                    </div>
-                  )}
+                  <div style={{ marginTop: 3, color: "#4ADE9C" }}>
+                    Balance on save: {finalCount.toLocaleString()} ({currentBalance.toLocaleString()} − {hours}h worked)
+                  </div>
                 </div>
               );
             })()}
@@ -1779,11 +1757,17 @@ function CitySelect({ value, onChange, options, error }) {
     </select>
   );
 }
-function TextInput({ value, onChange, placeholder, type = "text", uppercase = false, error = false }) {
+function TextInput({ value, onChange, placeholder, type = "text", uppercase = false, error = false, step }) {
   const base = uppercase ? { ...inputStyle, textTransform: "uppercase" } : inputStyle;
   const withCursor = (type === "date" || type === "time") ? { ...base, cursor: "pointer" } : base;
+  const handleChange = e => {
+    let v = e.target.value;
+    if (uppercase) v = v.toUpperCase();
+    if (type === "time" && step === 3600 && v) v = v.slice(0, 2) + ":00"; // hour-only, deduction is whole hours
+    onChange(v);
+  };
   return (
-    <input type={type} value={value} onChange={e => onChange(uppercase ? e.target.value.toUpperCase() : e.target.value)}
+    <input type={type} value={value} step={step} onChange={handleChange}
       onClick={e => { if ((type === "date" || type === "time") && e.target.showPicker) { try { e.target.showPicker(); } catch (err) {} } }}
       placeholder={placeholder} style={error ? { ...withCursor, border: "1px solid #F2545B" } : withCursor} />
   );
