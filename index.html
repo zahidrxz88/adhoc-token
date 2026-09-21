@@ -776,7 +776,10 @@ function Dashboard() {
       if (newRateCard !== rateCard) { setRateCard(newRateCard); lastRateSyncedRef.current = JSON.stringify(newRateCard); }
       if (newClientsList !== clientsList) { setClientsList(newClientsList); lastClientsSyncedRef.current = JSON.stringify(newClientsList); }
 
-      logActivity(editingId ? "edit-request" : "add-request", `${editingId ? "Edited" : "Added"} request ${form.refNo} for ${form.client}`);
+      const detail = includeRateInputs
+        ? `Created Active Tokens account for ${form.client} (${form.city}) with starting balance $${(newRequests[newRequests.length - 1].tokenCount || 0).toLocaleString()}`
+        : `${editingId ? "Edited" : "Added"} request ${form.refNo} for ${form.client}`;
+      logActivity(editingId ? "edit-request" : "add-request", detail);
       setModalOpen(false);
     } catch (e) {
       console.error("save request failed", e);
@@ -895,7 +898,7 @@ function Dashboard() {
   };
 
   const openTopUp = () => {
-    if (!isAdmin) return;
+    if (!isSuperAdmin) return;
     setTopUpMode("existing");
     setTopUpRequestId("");
     setTopUpAmount("");
@@ -903,6 +906,7 @@ function Dashboard() {
     setTopUpModalOpen(true);
   };
   const goToNewClientTopUp = () => {
+    if (!isSuperAdmin) return;
     setTopUpModalOpen(false);
     setForm({ ...emptyForm, type: "token" });
     setEditingId(null);
@@ -914,11 +918,12 @@ function Dashboard() {
     setModalOpen(true);
   };
   const submitTopUp = async () => {
-    if (!isAdmin) return;
+    if (!isSuperAdmin) return;
     if (!topUpRequestId) { setTopUpError("Please select a client / request to top up."); return; }
     const amount = parseInt(topUpAmount, 10);
     if (!Number.isFinite(amount) || amount < 1) { setTopUpError("Enter a top-up amount of 1 or more."); return; }
     const target = requests.find(r => r.id === topUpRequestId);
+    const prevBalance = target ? (target.tokenCount || 0) : 0;
     const newRequests = requests.map(r => r.id !== topUpRequestId ? r : { ...r, tokenCount: (r.tokenCount || 0) + amount });
 
     setTopUpError("");
@@ -927,7 +932,7 @@ function Dashboard() {
       await kvSet(KV_REQUESTS, newRequests);
       setRequests(newRequests);
       lastSyncedRef.current = JSON.stringify(newRequests);
-      if (target) logActivity("top-up", `Topped up ${amount} token${amount > 1 ? "s" : ""} for ${target.client} (${target.refNo})`);
+      if (target) logActivity("top-up", `Topped up $${amount.toLocaleString()} for ${target.client} (${target.refNo}) — balance $${prevBalance.toLocaleString()} → $${(prevBalance + amount).toLocaleString()}`);
       setTopUpModalOpen(false);
     } catch (e) {
       console.error("top up failed", e);
@@ -1187,15 +1192,15 @@ function Dashboard() {
                   <button onClick={() => setActivityLogOpen(true)} style={{ display: "flex", alignItems: "center", gap: 8, background: "transparent", color: "#E8ECE9", border: "1px solid #262B27", borderRadius: 8, padding: "12px 18px", fontWeight: 600, fontSize: 14 }}>
                     <ListIcon size={16} /> Activity Log
                   </button>
+                  <button onClick={openTopUp} style={{ display: "flex", alignItems: "center", gap: 8, background: "transparent", color: "#6E9FB0", border: "1px solid #6E9FB055", borderRadius: 8, padding: "12px 18px", fontWeight: 600, fontSize: 14 }}>
+                    <Ticket size={16} /> Top Up Tokens
+                  </button>
                 </React.Fragment>
               )}
               {isAdmin && (
                 <React.Fragment>
                   <button onClick={() => setRateChooserOpen(true)} style={{ display: "flex", alignItems: "center", gap: 8, background: "transparent", color: "#4ADE9C", border: "1px solid #4ADE9C55", borderRadius: 8, padding: "12px 18px", fontWeight: 600, fontSize: 14 }}>
                     <Pencil size={16} /> Edit Rate Card
-                  </button>
-                  <button onClick={openTopUp} style={{ display: "flex", alignItems: "center", gap: 8, background: "transparent", color: "#6E9FB0", border: "1px solid #6E9FB055", borderRadius: 8, padding: "12px 18px", fontWeight: 600, fontSize: 14 }}>
-                    <Ticket size={16} /> Top Up Tokens
                   </button>
                   <button onClick={openAdd} style={{ display: "flex", alignItems: "center", gap: 8, background: "#4ADE9C", color: "#0B0E0C", border: "none", borderRadius: 8, padding: "12px 18px", fontWeight: 600, fontSize: 14 }}>
                     <Plus size={16} /> Add Request
