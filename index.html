@@ -188,8 +188,6 @@ const emptyForm = {
   scope: "",
   type: "adhoc",
   tokenCount: "",
-  unitType: "man",
-  hourTier: "weekday_biz",
   requestDate: todayStr(),
   startTime: "",
   endTime: ""
@@ -211,6 +209,21 @@ function citiesForClient(rateCard, client) {
   if (!client) return [];
   const needle = client.trim().toLowerCase();
   return rateCard.filter(r => r.client.trim().toLowerCase() === needle).map(r => r.city).filter(Boolean);
+}
+const BUSINESS_HOURS_START = "09:00";
+const BUSINESS_HOURS_END = "18:00";
+function deriveHourTier(requestDate, startTime) {
+  if (!requestDate || !startTime) return null;
+  const day = parseD(requestDate).getDay(); // 0 = Sun, 6 = Sat
+  if (day === 0 || day === 6) return "weekend";
+  return (startTime >= BUSINESS_HOURS_START && startTime < BUSINESS_HOURS_END) ? "weekday_biz" : "weekday_after";
+}
+function hoursBetween(startTime, endTime) {
+  if (!startTime || !endTime) return null;
+  const [sh, sm] = startTime.split(":").map(Number);
+  const [eh, em] = endTime.split(":").map(Number);
+  const mins = (eh * 60 + em) - (sh * 60 + sm);
+  return mins > 0 ? mins / 60 : null;
 }
 const ROLE_COLOR = { superadmin: "#4ADE9C", admin: "#6E9FB0", guest: "#8B948E" };
 const ROLE_LABEL = { superadmin: "Super Admin", admin: "Admin", guest: "Guest" };
@@ -574,8 +587,6 @@ function Dashboard() {
       scope: r.scope || "",
       type: r.type,
       tokenCount: String(r.tokenCount || 5),
-      unitType: r.unitType || "man",
-      hourTier: r.hourTier || "weekday_biz",
       requestDate: r.requestDate,
       startTime: r.startTime || "",
       endTime: r.endTime || ""
@@ -840,17 +851,15 @@ function Dashboard() {
     // token requests are a running balance with no "done" state, so they always count as open
     const remaining = r.type === "token" ? 1 : schedule.length - completedCount;
     const rate = r.type === "token" ? findRate(rateCard, r.client, r.city) : null;
+    const hourTier = r.type === "token" ? deriveHourTier(r.requestDate, r.startTime) : null;
+    const durationHours = r.type === "token" ? hoursBetween(r.startTime, r.endTime) : null;
     let unitRate = null;
-    if (rate) {
-      if (r.unitType === "hour") {
-        const tier = HOUR_TIERS.find(t => t.value === r.hourTier) || HOUR_TIERS[0];
-        unitRate = rate[tier.rateField];
-      } else {
-        unitRate = rate.manRate;
-      }
+    if (rate && hourTier) {
+      const tier = HOUR_TIERS.find(t => t.value === hourTier) || HOUR_TIERS[0];
+      unitRate = rate[tier.rateField];
     }
-    const estCost = (rate && unitRate != null) ? unitRate * (r.tokenCount || 0) : null;
-    return { ...r, schedule, nextTwo, overdueCount, dueSoonCount, completedCount, remaining, unitRate, estCost };
+    const estCost = (unitRate != null && durationHours != null) ? unitRate * durationHours : null;
+    return { ...r, schedule, nextTwo, overdueCount, dueSoonCount, completedCount, remaining, hourTier, durationHours, unitRate, estCost };
   }), [requests, rateCard]);
 
   const upcomingFeed = useMemo(() => {
@@ -892,11 +901,11 @@ function Dashboard() {
 
   const exportRequestsCsv = () => {
     if (!isAdmin) return;
-    const header = ["Reference No", "Client", "City", "Address", "Region", "Type", "Token Unit", "Amount of Tokens", "Rate ($)", "Est. Cost ($)", "Request Date", "Start Time", "End Time", "Description"];
+    const header = ["Reference No", "Client", "City", "Address", "Region", "Type", "Rate Tier", "Amount of Tokens", "Rate ($)", "Est. Cost ($)", "Request Date", "Start Time", "End Time", "Description"];
     const rows = enriched.map(r => {
       const isTok = r.type === "token";
-      const tokenUnitLabel = isTok
-        ? (r.unitType === "hour" ? (HOUR_TIERS.find(t => t.value === r.hourTier) || HOUR_TIERS[0]).label : "1x Man")
+      const tokenUnitLabel = isTok && r.hourTier
+        ? (HOUR_TIERS.find(t => t.value === r.hourTier) || HOUR_TIERS[0]).label
         : "";
       return [
         r.refNo, r.client, r.city || "", r.address, r.region || "",
@@ -1522,6 +1531,26 @@ function Dashboard() {
                 </div>
               </div>
             )}
+            {!includeRateInputs && form.type === "token" && (() => {
+              const tier = deriveHourTier(form.requestDate, form.startTime);
+              const hours = hoursBetween(form.startTime, form.endTime);
+              if (!tier || hours == null) return (
+                <div className="mono" style={{ fontSize: 10.5, color: "#8B948E" }}>
+                  Fill in start and end time to see the rate tier and estimated cost.
+                </div>
+              );
+              const tierInfo = HOUR_TIERS.find(t => t.value === tier) || HOUR_TIERS[0];
+              const matched = findRate(rateCard, form.client, form.city);
+              const rate = matched ? matched[tierInfo.rateField] : null;
+              return (
+                <div className="mono" style={{ fontSize: 10.5, color: "#6E9FB0" }}>
+                  {tierInfo.label} · {hours}h
+                  {rate != null
+                    ? ` · rate on file: ${rate}/hr · est. ${(rate * hours).toLocaleString()} total`
+                    : " · no rate on file for this client/city + tier."}
+                </div>
+              );
+            })()}
             {formSaveError && <div style={{ color: "#F2545B", fontSize: 12.5 }}>{formSaveError}</div>}
           </div>
 
@@ -1615,7 +1644,7 @@ function RequestCard({ r, isAdmin, isUser, onEdit, onDelete, onSetDate, onToggle
           <div className="mono" style={{ color: "#8B948E", fontSize: 10 }}>TYPE</div>
           <div className="mono" style={{ display: "flex", alignItems: "center", gap: 5, color: isToken ? "#6E9FB0" : "#4ADE9C" }}>
             <Ticket size={12} /> {isToken
-              ? `TOKEN × ${r.tokenCount} · ${r.unitType === "hour" ? (HOUR_TIERS.find(t => t.value === r.hourTier) || HOUR_TIERS[0]).label.toUpperCase() : "1X MAN"}`
+              ? `TOKEN × ${r.tokenCount}${r.hourTier ? " · " + (HOUR_TIERS.find(t => t.value === r.hourTier) || HOUR_TIERS[0]).label.toUpperCase() : ""}`
               : "ADHOC"}
           </div>
         </div>
