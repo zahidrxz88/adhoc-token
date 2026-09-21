@@ -803,13 +803,6 @@ function Dashboard() {
       setSaving(false);
     }
   };
-  const setSlotDate = (requestId, slotId, dateStr) => {
-    if (!isAdmin) return;
-    setRequests(rs => rs.map(r => r.id !== requestId ? r : {
-      ...r,
-      schedule: r.schedule.map(s => s.id === slotId ? { ...s, date: dateStr || null } : s)
-    }));
-  };
 
   const openEditRate = rate => {
     if (!isAdmin) return;
@@ -1256,9 +1249,8 @@ function Dashboard() {
           ) : (
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))", gap: 14 }}>
               {openRequests.map(r => (
-                <RequestCard key={r.id} r={r} isAdmin={isAdmin} isUser={isUser}
-                  onEdit={() => openEdit(r)} onDelete={() => setConfirmDelete(r.id)}
-                  onSetDate={setSlotDate} />
+                <RequestCard key={r.id} r={r} isAdmin={isAdmin}
+                  onEdit={() => openEdit(r)} onDelete={() => setConfirmDelete(r.id)} />
               ))}
             </div>
           )}
@@ -1271,9 +1263,8 @@ function Dashboard() {
           ) : (
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))", gap: 14 }}>
               {activeTokenRequests.map(r => (
-                <RequestCard key={r.id} r={r} isAdmin={isAdmin} isUser={isUser}
-                  onEdit={() => openEdit(r)} onDelete={() => setConfirmDelete(r.id)}
-                  onSetDate={setSlotDate} />
+                <RequestCard key={r.id} r={r} isAdmin={isAdmin}
+                  onEdit={() => openEdit(r)} onDelete={() => setConfirmDelete(r.id)} />
               ))}
             </div>
           )}
@@ -1284,9 +1275,8 @@ function Dashboard() {
             <SectionHeader title="Completed Requests" sub={`${completedRequests.length} on file`} />
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))", gap: 14 }}>
               {completedRequests.map(r => (
-                <RequestCard key={r.id} r={r} isAdmin={isAdmin} isUser={isUser}
-                  onEdit={() => openEdit(r)} onDelete={() => setConfirmDelete(r.id)}
-                  onSetDate={setSlotDate} />
+                <RequestCard key={r.id} r={r} isAdmin={isAdmin}
+                  onEdit={() => openEdit(r)} onDelete={() => setConfirmDelete(r.id)} />
               ))}
             </div>
           </section>
@@ -1779,7 +1769,7 @@ function EmptyRow({ text }) {
   return <div style={{ border: "1px dashed #262B27", borderRadius: 10, padding: "28px 20px", textAlign: "center", color: "#8B948E", fontSize: 13 }}>{text}</div>;
 }
 
-function RequestCard({ r, isAdmin, isUser, onEdit, onDelete, onSetDate }) {
+function RequestCard({ r, isAdmin, onEdit, onDelete }) {
   const complete = r.remaining === 0;
   const ledColor = r.overdueCount > 0 ? "#F2545B" : r.dueSoonCount > 0 ? "#F5A623" : "#4ADE9C";
   const isToken = r.type === "token";
@@ -1868,39 +1858,6 @@ function RequestCard({ r, isAdmin, isUser, onEdit, onDelete, onSetDate }) {
         </div>
       )}
 
-      {isUser && !isToken && r.schedule.length > 0 && (
-        <div style={{ marginTop: 14, borderTop: "1px solid #1E2320", paddingTop: 12 }}>
-          <div className="mono" style={{ fontSize: 10, letterSpacing: 1, color: "#8B948E", marginBottom: 8 }}>
-            STATUS
-          </div>
-          {r.nextTwo.length === 0 ? (
-            <div style={{ display: "flex", alignItems: "center", gap: 6, color: "#4ADE9C", fontSize: 12.5 }}>
-              <CheckCircle2 size={13} /> Request completed
-            </div>
-          ) : (
-            <div style={{ display: "grid", gap: 10 }}>
-              {r.nextTwo.map((s, i) => (
-                <div key={s.id}>
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
-                      <div className="jack jack-glow" style={{ background: STATUS_COLOR[s.status], color: STATUS_COLOR[s.status] }} />
-                      <span className="mono" style={{ fontSize: 10, color: "#8B948E" }}>{i === 0 ? "NEXT" : "THEN"}</span>
-                      {isAdmin ? (
-                        <input type="date" value={s.date || ""} onChange={e => onSetDate(r.id, s.id, e.target.value)}
-                          onClick={e => { if (e.target.showPicker) { try { e.target.showPicker(); } catch (err) {} } }}
-                          style={dateInputStyle} />
-                      ) : (
-                        <span className="mono" style={{ fontSize: 12, color: s.date ? "#E8ECE9" : "#F5A623" }}>{s.date ? fmtShort(s.date) : "No date set"}</span>
-                      )}
-                    </div>
-                  </div>
-                  {isAdmin && !s.date && <div style={{ color: "#F5A623", fontSize: 11, marginTop: 4, marginLeft: 18 }}>Please select a date</div>}
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
     </div>
   );
 }
@@ -1931,7 +1888,6 @@ function Field({ label, children, error }) {
 }
 const inputStyle = { width: "100%", background: "#0B0E0C", border: "1px solid #262B27", borderRadius: 7, padding: "10px 12px", color: "#E8ECE9", fontSize: 14, outline: "none", colorScheme: "dark" };
 const selectStyle = { ...inputStyle, appearance: "auto" };
-const dateInputStyle = { background: "#0B0E0C", border: "1px solid #262B27", borderRadius: 6, padding: "5px 8px", color: "#E8ECE9", fontSize: 12, fontFamily: "'JetBrains Mono', monospace", colorScheme: "dark", outline: "none", minWidth: 140, cursor: "pointer" };
 
 function ClientSelect({ value, onChange, options, error }) {
   const [newMode, setNewMode] = React.useState(false);
