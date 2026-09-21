@@ -190,7 +190,9 @@ const emptyForm = {
   tokenCount: "",
   unitType: "man",
   hourTier: "weekday_biz",
-  requestDate: todayStr()
+  requestDate: todayStr(),
+  startTime: "",
+  endTime: ""
 };
 const emptyRateForm = { client: "", city: "", hourRateWeekdayBiz: "", hourRateWeekdayAfter: "", hourRateWeekend: "" };
 const emptyRateInputs = { hourRateWeekdayBiz: "", hourRateWeekdayAfter: "", hourRateWeekend: "" };
@@ -574,7 +576,9 @@ function Dashboard() {
       tokenCount: String(r.tokenCount || 5),
       unitType: r.unitType || "man",
       hourTier: r.hourTier || "weekday_biz",
-      requestDate: r.requestDate
+      requestDate: r.requestDate,
+      startTime: r.startTime || "",
+      endTime: r.endTime || ""
     });
     setEditingId(r.id);
     setFieldErrors({});
@@ -590,6 +594,7 @@ function Dashboard() {
     if (!form.address.trim()) errs.address = "Please fill in address";
     if (!form.region.trim()) errs.region = "Please fill in region";
     if (!form.requestDate) errs.requestDate = "Please fill in request date";
+    if (form.startTime && form.endTime && form.endTime <= form.startTime) errs.endTime = "End time must be after start time";
     if (form.type === "token") {
       const n = parseInt(form.tokenCount, 10);
       if (!Number.isFinite(n) || n < 1) errs.tokenCount = "Enter a token count of 1 or more";
@@ -884,7 +889,7 @@ function Dashboard() {
 
   const exportRequestsCsv = () => {
     if (!isAdmin) return;
-    const header = ["Reference No", "Client", "City", "Address", "Region", "Type", "Token Unit", "Amount of Tokens", "Rate ($)", "Est. Cost ($)", "Request Date", "Description"];
+    const header = ["Reference No", "Client", "City", "Address", "Region", "Type", "Token Unit", "Amount of Tokens", "Rate ($)", "Est. Cost ($)", "Request Date", "Start Time", "End Time", "Description"];
     const rows = enriched.map(r => {
       const isTok = r.type === "token";
       const tokenUnitLabel = isTok
@@ -898,6 +903,8 @@ function Dashboard() {
         isTok && r.unitRate != null ? r.unitRate : "",
         isTok && r.estCost != null ? r.estCost : "",
         r.requestDate,
+        r.startTime || "",
+        r.endTime || "",
         r.scope || ""
       ];
     });
@@ -1545,6 +1552,20 @@ function Dashboard() {
                 <TextInput type="date" value={form.requestDate} onChange={v => setForm({ ...form, requestDate: v })} error={!!fieldErrors.requestDate} />
               </Field>
             )}
+            {!includeRateInputs && (
+              <div style={{ display: "flex", gap: 10 }}>
+                <div style={{ flex: 1 }}>
+                  <Field label="Start time" error={fieldErrors.startTime}>
+                    <TextInput type="time" value={form.startTime} onChange={v => setForm({ ...form, startTime: v })} error={!!fieldErrors.startTime} />
+                  </Field>
+                </div>
+                <div style={{ flex: 1 }}>
+                  <Field label="End time" error={fieldErrors.endTime}>
+                    <TextInput type="time" value={form.endTime} onChange={v => setForm({ ...form, endTime: v })} error={!!fieldErrors.endTime} />
+                  </Field>
+                </div>
+              </div>
+            )}
             {formSaveError && <div style={{ color: "#F2545B", fontSize: 12.5 }}>{formSaveError}</div>}
           </div>
 
@@ -1646,6 +1667,12 @@ function RequestCard({ r, isAdmin, isUser, onEdit, onDelete, onSetDate, onToggle
           <div className="mono" style={{ color: "#8B948E", fontSize: 10 }}>REQUESTED</div>
           <div className="mono">{fmtShort(r.requestDate)}</div>
         </div>
+        {(r.startTime || r.endTime) && (
+          <div>
+            <div className="mono" style={{ color: "#8B948E", fontSize: 10 }}>TIME</div>
+            <div className="mono">{r.startTime || "?"} – {r.endTime || "?"}</div>
+          </div>
+        )}
         {isToken && (
           <div>
             <div className="mono" style={{ color: "#8B948E", fontSize: 10 }}>TOKEN BALANCE</div>
@@ -1744,10 +1771,10 @@ const dateInputStyle = { background: "#0B0E0C", border: "1px solid #262B27", bor
 
 function TextInput({ value, onChange, placeholder, type = "text", uppercase = false, error = false }) {
   const base = uppercase ? { ...inputStyle, textTransform: "uppercase" } : inputStyle;
-  const withCursor = type === "date" ? { ...base, cursor: "pointer" } : base;
+  const withCursor = (type === "date" || type === "time") ? { ...base, cursor: "pointer" } : base;
   return (
     <input type={type} value={value} onChange={e => onChange(uppercase ? e.target.value.toUpperCase() : e.target.value)}
-      onClick={e => { if (type === "date" && e.target.showPicker) { try { e.target.showPicker(); } catch (err) {} } }}
+      onClick={e => { if ((type === "date" || type === "time") && e.target.showPicker) { try { e.target.showPicker(); } catch (err) {} } }}
       placeholder={placeholder} style={error ? { ...withCursor, border: "1px solid #F2545B" } : withCursor} />
   );
 }
