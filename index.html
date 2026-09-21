@@ -1143,9 +1143,6 @@ function Dashboard() {
                   <button onClick={() => setRateChooserOpen(true)} style={{ display: "flex", alignItems: "center", gap: 8, background: "transparent", color: "#4ADE9C", border: "1px solid #4ADE9C55", borderRadius: 8, padding: "12px 18px", fontWeight: 600, fontSize: 14 }}>
                     <Pencil size={16} /> Edit Rate Card
                   </button>
-                  <button onClick={openAddRate} style={{ display: "flex", alignItems: "center", gap: 8, background: "transparent", color: "#4ADE9C", border: "1px solid #4ADE9C55", borderRadius: 8, padding: "12px 18px", fontWeight: 600, fontSize: 14 }}>
-                    <Plus size={16} /> Add Rate
-                  </button>
                   <button onClick={openTopUp} style={{ display: "flex", alignItems: "center", gap: 8, background: "transparent", color: "#6E9FB0", border: "1px solid #6E9FB055", borderRadius: 8, padding: "12px 18px", fontWeight: 600, fontSize: 14 }}>
                     <Ticket size={16} /> Top Up Tokens
                   </button>
@@ -1249,7 +1246,7 @@ function Dashboard() {
             );
           })()}
           <div className="mono" style={{ fontSize: 11, color: "#8B948E", marginBottom: 14 }}>
-            Rates are matched by client + city and feed the estimated cost on token requests. Use Add Rate to add another city for an existing client, or Top Up Tokens → New Client to onboard a brand new client.
+            Rates are matched by client + city and feed the estimated cost on token requests. Use Edit Rate Card → Add Rate to add another city for an existing client, or Top Up Tokens → New Client to onboard a brand new client.
           </div>
           {rateCard.length === 0 ? (
             <EmptyRow text="No rates on file yet." />
@@ -1426,10 +1423,14 @@ function Dashboard() {
       {rateChooserOpen && (
         <Modal onClose={() => setRateChooserOpen(false)} narrow>
           <h2 style={{ margin: "0 0 10px", fontSize: 16, fontWeight: 700 }}>Edit Rate Card</h2>
-          <p style={{ color: "#8B948E", fontSize: 13, margin: "0 0 16px" }}>Pick a client + city to update their rates.</p>
+          <p style={{ color: "#8B948E", fontSize: 13, margin: "0 0 16px" }}>Pick a client + city to update their rates, or add a new one.</p>
+          <button onClick={() => { setRateChooserOpen(false); openAddRate(); }}
+            style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, width: "100%", background: "transparent", color: "#4ADE9C", border: "1px solid #4ADE9C55", borderRadius: 8, padding: "12px 14px", fontWeight: 600, fontSize: 14, marginBottom: 14 }}>
+            <Plus size={16} /> Add Rate
+          </button>
           {rateCard.length === 0 ? (
             <div className="mono" style={{ fontSize: 12, color: "#8B948E", lineHeight: 1.6 }}>
-              No rate card entries yet. Use Add Rate or Top Up Tokens → New Client to set one up.
+              No rate card entries yet. Use Add Rate above, or Top Up Tokens → New Client to set one up.
             </div>
           ) : (
             <div style={{ display: "grid", gap: 8 }}>
