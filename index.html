@@ -291,6 +291,12 @@ function Dashboard() {
   const [authError, setAuthError] = useState("");
   const [authNotice, setAuthNotice] = useState("");
   const [authBusy, setAuthBusy] = useState(false);
+  const [passwordRecovery, setPasswordRecovery] = useState(false);
+  const [newPassword, setNewPassword] = useState("");
+  const [newPasswordConfirm, setNewPasswordConfirm] = useState("");
+  const [updatePwError, setUpdatePwError] = useState("");
+  const [updatePwNotice, setUpdatePwNotice] = useState("");
+  const [updatePwBusy, setUpdatePwBusy] = useState(false);
   const [manageUsersOpen, setManageUsersOpen] = useState(false);
   const [activityLogOpen, setActivityLogOpen] = useState(false);
   const [presenceTapped, setPresenceTapped] = useState(null);
@@ -318,6 +324,7 @@ function Dashboard() {
     });
     const { data: sub } = sb.auth.onAuthStateChange((_event, newSession) => {
       setSession(newSession);
+      if (_event === "PASSWORD_RECOVERY") setPasswordRecovery(true);
     });
     return () => sub.subscription.unsubscribe();
   }, []);
@@ -545,6 +552,37 @@ function Dashboard() {
       }
     } finally {
       setAuthBusy(false);
+    }
+  };
+  const submitForgotPassword = async () => {
+    setAuthError("");
+    setAuthNotice("");
+    if (!authEmail.trim()) { setAuthError("Enter your email."); return; }
+    setAuthBusy(true);
+    try {
+      const { error } = await sb.auth.resetPasswordForEmail(authEmail.trim(), {
+        redirectTo: window.location.href.split("#")[0].split("?")[0]
+      });
+      if (error) { setAuthError(error.message); return; }
+      setAuthNotice("If an account exists for that email, a password reset link has been sent.");
+    } finally {
+      setAuthBusy(false);
+    }
+  };
+  const submitNewPassword = async () => {
+    setUpdatePwError("");
+    setUpdatePwNotice("");
+    if (newPassword.length < 6) { setUpdatePwError("Choose a password of at least 6 characters."); return; }
+    if (newPassword !== newPasswordConfirm) { setUpdatePwError("Passwords do not match."); return; }
+    setUpdatePwBusy(true);
+    try {
+      const { error } = await sb.auth.updateUser({ password: newPassword });
+      if (error) { setUpdatePwError(error.message); return; }
+      setNewPassword("");
+      setNewPasswordConfirm("");
+      setPasswordRecovery(false);
+    } finally {
+      setUpdatePwBusy(false);
     }
   };
   const logout = async () => {
@@ -940,6 +978,33 @@ function Dashboard() {
     );
   }
 
+  if (passwordRecovery) {
+    return (
+      <div style={{ minHeight: "100vh", background: "#0B0E0C", display: "flex", alignItems: "center", justifyContent: "center", padding: 20, color: "#E8ECE9", fontFamily: "'Space Grotesk', sans-serif" }}>
+        <div style={{ width: "100%", maxWidth: 420, background: "#0E1210", border: "1px solid #1E2320", borderRadius: 14, padding: 28 }}>
+          <h1 style={{ fontSize: 22, fontWeight: 700, margin: "0 0 4px" }}>Set a new password</h1>
+          <div className="mono" style={{ fontSize: 10.5, letterSpacing: 1.5, color: "#8B948E", marginBottom: 22 }}>ADHOC / TOKEN SYSTEM</div>
+          <div style={{ display: "grid", gap: 12 }}>
+            <Field label="New password">
+              <input type="password" value={newPassword} onChange={e => setNewPassword(e.target.value)}
+                onKeyDown={e => e.key === "Enter" && submitNewPassword()} placeholder="Min 6 characters" style={inputStyle} />
+            </Field>
+            <Field label="Confirm new password">
+              <input type="password" value={newPasswordConfirm} onChange={e => setNewPasswordConfirm(e.target.value)}
+                onKeyDown={e => e.key === "Enter" && submitNewPassword()} style={inputStyle} />
+            </Field>
+            {updatePwError && <div style={{ color: "#F2545B", fontSize: 12 }}>{updatePwError}</div>}
+            {updatePwNotice && <div style={{ color: "#4ADE9C", fontSize: 12 }}>{updatePwNotice}</div>}
+            <button onClick={submitNewPassword} disabled={updatePwBusy}
+              style={{ background: "#4ADE9C", color: "#0B0E0C", border: "none", borderRadius: 8, padding: "11px 0", fontWeight: 600, fontSize: 14, opacity: updatePwBusy ? 0.6 : 1 }}>
+              {updatePwBusy ? "Please wait…" : "Update Password"}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   if (!currentUser) {
     return (
       <div style={{ minHeight: "100vh", background: "#0B0E0C", display: "flex", alignItems: "center", justifyContent: "center", padding: 20, color: "#E8ECE9", fontFamily: "'Space Grotesk', sans-serif" }}>
@@ -947,46 +1012,76 @@ function Dashboard() {
           <h1 style={{ fontSize: 22, fontWeight: 700, margin: "0 0 4px" }}>Adhoc / Token System</h1>
           <div className="mono" style={{ fontSize: 10.5, letterSpacing: 1.5, color: "#8B948E", marginBottom: 22 }}>GLOBAL VISION MULTIMEDIA · A RICOH COMPANY</div>
 
-          <div style={{ display: "flex", gap: 6, marginBottom: 18 }}>
-            {[["login", "Log In"], ["register", "Register"]].map(([tab, label]) => (
-              <button key={tab} type="button" className="type-btn" onClick={() => { setAuthMode(tab); setAuthError(""); setAuthNotice(""); }}
-                style={{
-                  flex: 1, padding: "10px 4px", borderRadius: 7, fontWeight: 600, fontSize: 12.5,
-                  border: authMode === tab ? "1px solid #4ADE9C" : "1px solid #262B27",
-                  background: authMode === tab ? "#4ADE9C22" : "transparent",
-                  color: authMode === tab ? "#4ADE9C" : "#8B948E"
-                }}>{label}</button>
-            ))}
-          </div>
+          {authMode !== "forgot" && (
+            <div style={{ display: "flex", gap: 6, marginBottom: 18 }}>
+              {[["login", "Log In"], ["register", "Register"]].map(([tab, label]) => (
+                <button key={tab} type="button" className="type-btn" onClick={() => { setAuthMode(tab); setAuthError(""); setAuthNotice(""); }}
+                  style={{
+                    flex: 1, padding: "10px 4px", borderRadius: 7, fontWeight: 600, fontSize: 12.5,
+                    border: authMode === tab ? "1px solid #4ADE9C" : "1px solid #262B27",
+                    background: authMode === tab ? "#4ADE9C22" : "transparent",
+                    color: authMode === tab ? "#4ADE9C" : "#8B948E"
+                  }}>{label}</button>
+              ))}
+            </div>
+          )}
 
-          <div style={{ display: "grid", gap: 12 }}>
-            {authMode === "register" && (
-              <React.Fragment>
-                <Field label="First name"><TextInput value={authFirst} onChange={setAuthFirst} placeholder="JANE" uppercase /></Field>
-                <Field label="Last name"><TextInput value={authLast} onChange={setAuthLast} placeholder="DOE" uppercase /></Field>
-              </React.Fragment>
-            )}
-            <Field label="Email">
-              <input type="email" value={authEmail} onChange={e => setAuthEmail(e.target.value)}
-                onKeyDown={e => e.key === "Enter" && submitAuth()} placeholder="you@example.com" style={inputStyle} />
-            </Field>
-            <Field label={authMode === "register" ? "Choose a password" : "Password"}>
-              <input type="password" value={authPassword} onChange={e => setAuthPassword(e.target.value)}
-                onKeyDown={e => e.key === "Enter" && submitAuth()}
-                placeholder={authMode === "register" ? "Min 6 characters" : ""} style={inputStyle} />
-            </Field>
-            {authMode === "register" && (
-              <div className="mono" style={{ fontSize: 10.5, color: "#8B948E" }}>
-                New accounts start as Guest (view only) until an Admin promotes you.
+          {authMode === "forgot" ? (
+            <div style={{ display: "grid", gap: 12 }}>
+              <div className="mono" style={{ fontSize: 10.5, color: "#8B948E", marginTop: -8 }}>
+                Enter your account email and we'll send you a password reset link.
               </div>
-            )}
-            {authError && <div style={{ color: "#F2545B", fontSize: 12 }}>{authError}</div>}
-            {authNotice && <div style={{ color: "#4ADE9C", fontSize: 12 }}>{authNotice}</div>}
-            <button onClick={submitAuth} disabled={authBusy}
-              style={{ background: "#4ADE9C", color: "#0B0E0C", border: "none", borderRadius: 8, padding: "11px 0", fontWeight: 600, fontSize: 14, opacity: authBusy ? 0.6 : 1 }}>
-              {authBusy ? "Please wait…" : authMode === "register" ? "Register" : "Log In"}
-            </button>
-          </div>
+              <Field label="Email">
+                <input type="email" value={authEmail} onChange={e => setAuthEmail(e.target.value)}
+                  onKeyDown={e => e.key === "Enter" && submitForgotPassword()} placeholder="you@example.com" style={inputStyle} />
+              </Field>
+              {authError && <div style={{ color: "#F2545B", fontSize: 12 }}>{authError}</div>}
+              {authNotice && <div style={{ color: "#4ADE9C", fontSize: 12 }}>{authNotice}</div>}
+              <button onClick={submitForgotPassword} disabled={authBusy}
+                style={{ background: "#4ADE9C", color: "#0B0E0C", border: "none", borderRadius: 8, padding: "11px 0", fontWeight: 600, fontSize: 14, opacity: authBusy ? 0.6 : 1 }}>
+                {authBusy ? "Please wait…" : "Send Reset Link"}
+              </button>
+              <button type="button" onClick={() => { setAuthMode("login"); setAuthError(""); setAuthNotice(""); }}
+                style={{ background: "none", border: "none", color: "#8B948E", fontSize: 12.5, cursor: "pointer", padding: 0, textAlign: "left" }}>
+                ← Back to log in
+              </button>
+            </div>
+          ) : (
+            <div style={{ display: "grid", gap: 12 }}>
+              {authMode === "register" && (
+                <React.Fragment>
+                  <Field label="First name"><TextInput value={authFirst} onChange={setAuthFirst} placeholder="JANE" uppercase /></Field>
+                  <Field label="Last name"><TextInput value={authLast} onChange={setAuthLast} placeholder="DOE" uppercase /></Field>
+                </React.Fragment>
+              )}
+              <Field label="Email">
+                <input type="email" value={authEmail} onChange={e => setAuthEmail(e.target.value)}
+                  onKeyDown={e => e.key === "Enter" && submitAuth()} placeholder="you@example.com" style={inputStyle} />
+              </Field>
+              <Field label={authMode === "register" ? "Choose a password" : "Password"}>
+                <input type="password" value={authPassword} onChange={e => setAuthPassword(e.target.value)}
+                  onKeyDown={e => e.key === "Enter" && submitAuth()}
+                  placeholder={authMode === "register" ? "Min 6 characters" : ""} style={inputStyle} />
+              </Field>
+              {authMode === "login" && (
+                <button type="button" onClick={() => { setAuthMode("forgot"); setAuthError(""); setAuthNotice(""); }}
+                  style={{ background: "none", border: "none", color: "#6E9FB0", fontSize: 12.5, cursor: "pointer", padding: 0, textAlign: "left", marginTop: -6 }}>
+                  Forgot password?
+                </button>
+              )}
+              {authMode === "register" && (
+                <div className="mono" style={{ fontSize: 10.5, color: "#8B948E" }}>
+                  New accounts start as Guest (view only) until an Admin promotes you.
+                </div>
+              )}
+              {authError && <div style={{ color: "#F2545B", fontSize: 12 }}>{authError}</div>}
+              {authNotice && <div style={{ color: "#4ADE9C", fontSize: 12 }}>{authNotice}</div>}
+              <button onClick={submitAuth} disabled={authBusy}
+                style={{ background: "#4ADE9C", color: "#0B0E0C", border: "none", borderRadius: 8, padding: "11px 0", fontWeight: 600, fontSize: 14, opacity: authBusy ? 0.6 : 1 }}>
+                {authBusy ? "Please wait…" : authMode === "register" ? "Register" : "Log In"}
+              </button>
+            </div>
+          )}
         </div>
       </div>
     );
