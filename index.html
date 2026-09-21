@@ -183,6 +183,7 @@ const emptyForm = {
   region: "",
   scope: "",
   type: "adhoc",
+  tokenCount: "",
   requestDate: todayStr(),
   startTime: "",
   endTime: ""
@@ -610,6 +611,10 @@ function Dashboard() {
     if (!form.region.trim()) errs.region = "Please fill in region";
     if (!form.requestDate) errs.requestDate = "Please fill in request date";
     if (form.startTime && form.endTime && form.endTime <= form.startTime) errs.endTime = "End time must be after start time";
+    if (includeRateInputs) {
+      const n = parseInt(form.tokenCount, 10);
+      if (!Number.isFinite(n) || n < 1) errs.tokenCount = "Enter a starting token amount of 1 or more";
+    }
     setFieldErrors(errs);
 
     let rateErrs = {};
@@ -639,7 +644,9 @@ function Dashboard() {
         return { ...r, ...form, tokenCount, schedule };
       });
     } else {
-      const tokenCount = form.type === "token" ? finalTokenCountFor(form, null) : slotCountFor(form);
+      const tokenCount = form.type !== "token" ? slotCountFor(form)
+        : includeRateInputs ? Math.max(0, parseInt(form.tokenCount, 10) || 0)
+        : finalTokenCountFor(form, null);
       newRequests = [...requests, { id: uid(), ...form, tokenCount, schedule: buildSlots(form, []) }];
     }
 
@@ -1494,6 +1501,11 @@ function Dashboard() {
                   <input type="number" min="0" step="0.01" value={rateInputs.hourRateWeekend}
                     onChange={e => setRateInputs({ ...rateInputs, hourRateWeekend: e.target.value })}
                     style={rateInputErrors.hourRateWeekend ? { ...inputStyle, border: "1px solid #F2545B" } : inputStyle} />
+                </Field>
+                <Field label="Starting Amount of Tokens" error={fieldErrors.tokenCount}>
+                  <input type="number" min="1" value={form.tokenCount}
+                    onChange={e => setForm({ ...form, tokenCount: e.target.value })}
+                    style={fieldErrors.tokenCount ? { ...inputStyle, border: "1px solid #F2545B" } : inputStyle} />
                 </Field>
               </div>
             )}
