@@ -1448,8 +1448,8 @@ function Dashboard() {
             </Field>
             {!includeRateInputs && (
               <Field label="City" error={fieldErrors.city}>
-                <CityField value={form.city} onChange={v => setForm({ ...form, city: v })} options={allCities(rateCard)}
-                  placeholder="E.G. TOKYO" error={!!fieldErrors.city} />
+                <CitySelect value={form.city} onChange={v => setForm({ ...form, city: v })} options={allCities(rateCard)}
+                  error={!!fieldErrors.city} />
                 <div className="mono" style={{ fontSize: 10.5, color: "#8B948E", marginTop: 6 }}>
                   Rate is matched by client + city. Pick an existing city to pull its rate, or enter a new one.
                 </div>
@@ -1498,8 +1498,8 @@ function Dashboard() {
                   Optional — fill in whichever hourly rates apply. This saves straight to the Rate Card.
                 </div>
                 <Field label="City" error={fieldErrors.city}>
-                  <CityField value={form.city} onChange={v => setForm({ ...form, city: v })} options={allCities(rateCard)}
-                    placeholder="E.G. TOKYO" error={!!fieldErrors.city} />
+                  <CitySelect value={form.city} onChange={v => setForm({ ...form, city: v })} options={allCities(rateCard)}
+                    error={!!fieldErrors.city} />
                 </Field>
                 <Field label="Amount ($) per hour · Weekday Business Hours" error={rateInputErrors.hourRateWeekdayBiz}>
                   <input type="number" min="0" step="0.01" value={rateInputs.hourRateWeekdayBiz}
@@ -1771,28 +1771,21 @@ const inputStyle = { width: "100%", background: "#0B0E0C", border: "1px solid #2
 const selectStyle = { ...inputStyle, appearance: "auto" };
 const dateInputStyle = { background: "#0B0E0C", border: "1px solid #262B27", borderRadius: 6, padding: "5px 8px", color: "#E8ECE9", fontSize: 12, fontFamily: "'JetBrains Mono', monospace", colorScheme: "dark", outline: "none", minWidth: 140, cursor: "pointer" };
 
-function CityField({ value, onChange, options, error, placeholder }) {
-  const [open, setOpen] = React.useState(false);
-  const filtered = options.filter(c => c.toLowerCase().includes((value || "").trim().toLowerCase()));
+function CitySelect({ value, onChange, options, error }) {
+  const known = options.includes(value);
+  const selectValue = known ? value : (value ? "__new__" : "");
   return (
-    <div style={{ position: "relative" }}>
-      <input value={value}
-        onChange={e => { onChange(e.target.value.toUpperCase()); setOpen(true); }}
-        onFocus={() => setOpen(true)}
-        onBlur={() => setTimeout(() => setOpen(false), 150)}
-        placeholder={placeholder}
-        style={error ? { ...inputStyle, border: "1px solid #F2545B" } : inputStyle} />
-      {open && filtered.length > 0 && (
-        <div className="scrollbar" style={{
-          position: "absolute", top: "100%", left: 0, right: 0, marginTop: 4, zIndex: 20,
-          background: "#0E1210", border: "1px solid #262B27", borderRadius: 8, maxHeight: 180, overflowY: "auto"
-        }}>
-          {filtered.map(c => (
-            <div key={c} className="mono" onMouseDown={() => { onChange(c); setOpen(false); }}
-              style={{ padding: "9px 12px", fontSize: 13, color: "#E8ECE9", cursor: "pointer" }}>
-              {c}
-            </div>
-          ))}
+    <div>
+      <select value={selectValue}
+        onChange={e => { const v = e.target.value; onChange(v === "__new__" ? "" : v); }}
+        style={error ? { ...selectStyle, border: "1px solid #F2545B", textTransform: "uppercase" } : { ...selectStyle, textTransform: "uppercase" }}>
+        <option value="">Select a city</option>
+        {options.map(c => <option key={c} value={c}>{c}</option>)}
+        <option value="__new__">+ Add new city</option>
+      </select>
+      {selectValue === "__new__" && (
+        <div style={{ marginTop: 8 }}>
+          <TextInput value={value} onChange={onChange} placeholder="TYPE NEW CITY NAME" uppercase error={error} />
         </div>
       )}
     </div>
