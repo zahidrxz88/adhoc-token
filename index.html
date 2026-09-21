@@ -1528,6 +1528,9 @@ function Dashboard() {
                     New client — this will be added to the client list once saved.
                   </div>
                 </React.Fragment>
+              ) : form.type === "adhoc" ? (
+                <ClientSelect value={form.client} onChange={v => setForm({ ...form, client: v, city: "" })}
+                  options={clientsList} error={!!fieldErrors.client} />
               ) : (
                 <select value={form.client} onChange={e => setForm({ ...form, client: e.target.value, city: "" })}
                   style={fieldErrors.client ? { ...selectStyle, border: "1px solid #F2545B" } : selectStyle}>
@@ -1855,6 +1858,29 @@ const inputStyle = { width: "100%", background: "#0B0E0C", border: "1px solid #2
 const selectStyle = { ...inputStyle, appearance: "auto" };
 const dateInputStyle = { background: "#0B0E0C", border: "1px solid #262B27", borderRadius: 6, padding: "5px 8px", color: "#E8ECE9", fontSize: 12, fontFamily: "'JetBrains Mono', monospace", colorScheme: "dark", outline: "none", minWidth: 140, cursor: "pointer" };
 
+function ClientSelect({ value, onChange, options, error }) {
+  const known = options.includes(value);
+  const selectValue = known ? value : (value ? "__new__" : "");
+  return (
+    <div>
+      <select value={selectValue}
+        onChange={e => { const v = e.target.value; onChange(v === "__new__" ? "" : v); }}
+        style={error ? { ...selectStyle, border: "1px solid #F2545B" } : selectStyle}>
+        <option value="">Please select client</option>
+        {options.map(c => <option key={c} value={c}>{c}</option>)}
+        <option value="__new__">+ New Client</option>
+      </select>
+      {selectValue === "__new__" && (
+        <div style={{ marginTop: 8 }}>
+          <TextInput value={value} onChange={onChange} placeholder="ENTER CLIENT NAME" uppercase error={error} />
+          <div className="mono" style={{ fontSize: 10.5, color: "#8B948E", marginTop: 6 }}>
+            One-off client for this request — won't be added to the Token client list.
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 function CitySelect({ value, onChange, options, error }) {
   return (
     <select value={value} onChange={e => onChange(e.target.value)}
