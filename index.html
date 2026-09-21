@@ -748,13 +748,6 @@ function Dashboard() {
       schedule: r.schedule.map(s => s.id === slotId ? { ...s, date: dateStr || null } : s)
     }));
   };
-  const toggleSlotDone = (requestId, slotId) => {
-    if (!isAdmin) return;
-    setRequests(rs => rs.map(r => r.id !== requestId ? r : {
-      ...r,
-      schedule: r.schedule.map(s => s.id === slotId ? { ...s, completed: !s.completed } : s)
-    }));
-  };
 
   const openEditRate = rate => {
     if (!isAdmin) return;
@@ -1178,11 +1171,6 @@ function Dashboard() {
                         <div className={`jack jack-glow${isNext ? " jack-pulse" : ""}`} style={{ background: STATUS_COLOR[item.status], color: STATUS_COLOR[item.status], width: isNext ? 14 : 10, height: isNext ? 14 : 10 }} />
                         <span className="mono" style={{ fontSize: isNext ? 16 : 13, color: isNext ? "#E8ECE9" : "#8B948E" }}>{fmtShort(item.date)}</span>
                         <span className="mono" style={{ fontSize: isNext ? 11 : 10, letterSpacing: 0.5, color: "#6E9FB0", border: "1px solid #6E9FB055", borderRadius: 5, padding: isNext ? "4px 10px" : "3px 8px" }}>UPCOMING</span>
-                        {isAdmin && (
-                          <button onClick={() => toggleSlotDone(item.requestId, item.slotId)} title="Mark complete" style={{ marginLeft: "auto", background: "transparent", border: "1px solid #262B27", borderRadius: 6, padding: isNext ? "8px 14px" : "6px 10px", color: "#4ADE9C", display: "flex", alignItems: "center", gap: 6, fontSize: isNext ? 13 : 12, flexShrink: 0 }}>
-                            <CheckCircle2 size={isNext ? 16 : 14} /> Done
-                          </button>
-                        )}
                       </div>
                       <div style={{ fontSize: isNext ? 20 : 14, fontWeight: 700, marginTop: isNext ? 12 : 8, wordBreak: "break-word" }}>{item.client || "Untitled client"}</div>
                       <div className="mono" style={{ fontSize: isNext ? 13 : 11, color: "#8B948E", marginTop: 3 }}>{item.refNo}</div>
@@ -1208,7 +1196,7 @@ function Dashboard() {
               {openRequests.map(r => (
                 <RequestCard key={r.id} r={r} isAdmin={isAdmin} isUser={isUser}
                   onEdit={() => openEdit(r)} onDelete={() => setConfirmDelete(r.id)}
-                  onSetDate={setSlotDate} onToggleDone={toggleSlotDone} />
+                  onSetDate={setSlotDate} />
               ))}
             </div>
           )}
@@ -1223,7 +1211,7 @@ function Dashboard() {
               {activeTokenRequests.map(r => (
                 <RequestCard key={r.id} r={r} isAdmin={isAdmin} isUser={isUser}
                   onEdit={() => openEdit(r)} onDelete={() => setConfirmDelete(r.id)}
-                  onSetDate={setSlotDate} onToggleDone={toggleSlotDone} />
+                  onSetDate={setSlotDate} />
               ))}
             </div>
           )}
@@ -1236,7 +1224,7 @@ function Dashboard() {
               {completedRequests.map(r => (
                 <RequestCard key={r.id} r={r} isAdmin={isAdmin} isUser={isUser}
                   onEdit={() => openEdit(r)} onDelete={() => setConfirmDelete(r.id)}
-                  onSetDate={setSlotDate} onToggleDone={toggleSlotDone} />
+                  onSetDate={setSlotDate} />
               ))}
             </div>
           </section>
@@ -1715,7 +1703,7 @@ function EmptyRow({ text }) {
   return <div style={{ border: "1px dashed #262B27", borderRadius: 10, padding: "28px 20px", textAlign: "center", color: "#8B948E", fontSize: 13 }}>{text}</div>;
 }
 
-function RequestCard({ r, isAdmin, isUser, onEdit, onDelete, onSetDate, onToggleDone }) {
+function RequestCard({ r, isAdmin, isUser, onEdit, onDelete, onSetDate }) {
   const complete = r.remaining === 0;
   const ledColor = r.overdueCount > 0 ? "#F2545B" : r.dueSoonCount > 0 ? "#F5A623" : "#4ADE9C";
   const isToken = r.type === "token";
@@ -1824,12 +1812,6 @@ function RequestCard({ r, isAdmin, isUser, onEdit, onDelete, onSetDate, onToggle
                         <span className="mono" style={{ fontSize: 12, color: s.date ? "#E8ECE9" : "#F5A623" }}>{s.date ? fmtShort(s.date) : "No date set"}</span>
                       )}
                     </div>
-                    {isAdmin && (
-                      <button onClick={() => onToggleDone(r.id, s.id)} disabled={!s.date} title={s.date ? "Mark complete" : "Select a date first"}
-                        style={{ background: "transparent", border: "1px solid #262B27", borderRadius: 6, padding: "5px 9px", color: s.date ? "#4ADE9C" : "#3A423C", display: "flex", alignItems: "center", gap: 5, fontSize: 11, opacity: s.date ? 1 : 0.6, cursor: s.date ? "pointer" : "not-allowed", flexShrink: 0 }}>
-                        <CheckCircle2 size={12} /> Done
-                      </button>
-                    )}
                   </div>
                   {isAdmin && !s.date && <div style={{ color: "#F5A623", fontSize: 11, marginTop: 4, marginLeft: 18 }}>Please select a date</div>}
                 </div>
