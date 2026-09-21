@@ -1451,7 +1451,7 @@ function Dashboard() {
                 <CitySelect value={form.city} onChange={v => setForm({ ...form, city: v })} options={allCities(rateCard)}
                   error={!!fieldErrors.city} />
                 <div className="mono" style={{ fontSize: 10.5, color: "#8B948E", marginTop: 6 }}>
-                  Rate is matched by client + city. Pick an existing city to pull its rate, or enter a new one.
+                  Rate is matched by client + city.
                 </div>
               </Field>
             )}
@@ -1498,8 +1498,7 @@ function Dashboard() {
                   Optional — fill in whichever hourly rates apply. This saves straight to the Rate Card.
                 </div>
                 <Field label="City" error={fieldErrors.city}>
-                  <CitySelect value={form.city} onChange={v => setForm({ ...form, city: v })} options={allCities(rateCard)}
-                    error={!!fieldErrors.city} />
+                  <TextInput value={form.city} onChange={v => setForm({ ...form, city: v })} placeholder="E.G. TOKYO" uppercase error={!!fieldErrors.city} />
                 </Field>
                 <Field label="Amount ($) per hour · Weekday Business Hours" error={rateInputErrors.hourRateWeekdayBiz}>
                   <input type="number" min="0" step="0.01" value={rateInputs.hourRateWeekdayBiz}
@@ -1772,23 +1771,12 @@ const selectStyle = { ...inputStyle, appearance: "auto" };
 const dateInputStyle = { background: "#0B0E0C", border: "1px solid #262B27", borderRadius: 6, padding: "5px 8px", color: "#E8ECE9", fontSize: 12, fontFamily: "'JetBrains Mono', monospace", colorScheme: "dark", outline: "none", minWidth: 140, cursor: "pointer" };
 
 function CitySelect({ value, onChange, options, error }) {
-  const known = options.includes(value);
-  const selectValue = known ? value : (value ? "__new__" : "");
   return (
-    <div>
-      <select value={selectValue}
-        onChange={e => { const v = e.target.value; onChange(v === "__new__" ? "" : v); }}
-        style={error ? { ...selectStyle, border: "1px solid #F2545B", textTransform: "uppercase" } : { ...selectStyle, textTransform: "uppercase" }}>
-        <option value="">Select a city</option>
-        {options.map(c => <option key={c} value={c}>{c}</option>)}
-        <option value="__new__">+ Add new city</option>
-      </select>
-      {selectValue === "__new__" && (
-        <div style={{ marginTop: 8 }}>
-          <TextInput value={value} onChange={onChange} placeholder="TYPE NEW CITY NAME" uppercase error={error} />
-        </div>
-      )}
-    </div>
+    <select value={value} onChange={e => onChange(e.target.value)}
+      style={error ? { ...selectStyle, border: "1px solid #F2545B", textTransform: "uppercase" } : { ...selectStyle, textTransform: "uppercase" }}>
+      <option value="">Select a city</option>
+      {options.map(c => <option key={c} value={c}>{c}</option>)}
+    </select>
   );
 }
 function TextInput({ value, onChange, placeholder, type = "text", uppercase = false, error = false }) {
