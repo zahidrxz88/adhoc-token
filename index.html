@@ -644,7 +644,7 @@ function Dashboard() {
     const errs = {};
     if (!form.refNo.trim()) errs.refNo = "Please fill in reference no";
     if (!form.client.trim()) errs.client = "Please fill in client";
-    if (!form.city.trim()) errs.city = "Please fill in city";
+    if (form.type === "token" && !form.city.trim()) errs.city = "Please fill in city";
     if (!form.address.trim()) errs.address = "Please fill in address";
     if (!form.region.trim()) errs.region = "Please fill in region";
     if (!form.requestDate) errs.requestDate = "Please fill in request date";
@@ -1536,7 +1536,7 @@ function Dashboard() {
                 </select>
               )}
             </Field>
-            {!includeRateInputs && (
+            {!includeRateInputs && form.type === "token" && (
               <Field label="City" error={fieldErrors.city}>
                 <CitySelect value={form.city} onChange={v => setForm({ ...form, city: v })} options={allCities(rateCard)}
                   error={!!fieldErrors.city} />
@@ -1556,7 +1556,7 @@ function Dashboard() {
 
             <Field label="Request type">
               <div style={{ display: "flex", gap: 8 }}>
-                <button type="button" className="type-btn" onClick={() => setForm({ ...form, type: "adhoc" })}
+                <button type="button" className="type-btn" onClick={() => setForm({ ...form, type: "adhoc", city: "" })}
                   style={{
                     flex: 1, padding: "12px 0", borderRadius: 8, fontWeight: 600, fontSize: 14,
                     border: form.type === "adhoc" ? "1px solid #4ADE9C" : "1px solid #262B27",
