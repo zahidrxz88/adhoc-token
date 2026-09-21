@@ -1524,7 +1524,9 @@ function Dashboard() {
         </Modal>
       )}
 
-      {modalOpen && (
+      {modalOpen && (() => {
+        const editingAccount = editingId ? isTokenAccount(requests.find(r => r.id === editingId) || {}) : false;
+        return (
         <Modal onClose={() => setModalOpen(false)}>
           <h2 style={{ margin: "0 0 18px", fontSize: 18, fontWeight: 700 }}>{editingId ? "Edit Request" : "Add Request"}</h2>
           <div style={{ display: "grid", gap: 14 }}>
@@ -1631,7 +1633,7 @@ function Dashboard() {
                 <TextInput type="date" value={form.requestDate} onChange={v => setForm({ ...form, requestDate: v })} error={!!fieldErrors.requestDate} />
               </Field>
             )}
-            {!includeRateInputs && (
+            {!includeRateInputs && !editingAccount && (
               <div style={{ display: "flex", gap: 10 }}>
                 <div style={{ flex: 1 }}>
                   <Field label="Start time" error={fieldErrors.startTime}>
@@ -1645,7 +1647,7 @@ function Dashboard() {
                 </div>
               </div>
             )}
-            {!includeRateInputs && form.type === "token" && (() => {
+            {!includeRateInputs && !editingAccount && form.type === "token" && (() => {
               const tier = deriveHourTier(form.requestDate, form.startTime);
               const hours = hoursBetween(form.startTime, form.endTime);
               if (!tier || hours == null) return (
@@ -1686,7 +1688,8 @@ function Dashboard() {
             <button onClick={() => setModalOpen(false)} disabled={saving} style={{ background: "transparent", color: "#8B948E", border: "1px solid #262B27", borderRadius: 8, padding: "11px 18px", fontSize: 14 }}>Cancel</button>
           </div>
         </Modal>
-      )}
+        );
+      })()}
 
       {confirmDelete && (
         <Modal onClose={() => setConfirmDelete(null)} narrow>
