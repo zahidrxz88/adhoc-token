@@ -689,6 +689,7 @@ function Dashboard() {
       region: r.region || "",
       scope: r.scope || "",
       type: r.type,
+      tokenCount: String(r.tokenCount ?? ""),
       requestDate: r.requestDate,
       startTime: r.startTime || "",
       endTime: r.endTime || ""
@@ -712,6 +713,12 @@ function Dashboard() {
       const n = parseInt(form.tokenCount, 10);
       if (!Number.isFinite(n) || n < 1) errs.tokenCount = "Enter a starting amount of $1 or more";
     }
+    const editingExisting = editingId ? requests.find(r => r.id === editingId) : null;
+    const editingAcct = editingExisting ? isTokenAccount(editingExisting) : false;
+    if (editingAcct && isSuperAdmin) {
+      const n = parseInt(form.tokenCount, 10);
+      if (!Number.isFinite(n) || n < 0) errs.tokenCount = "Enter a balance of $0 or more";
+    }
     setFieldErrors(errs);
 
     let rateErrs = {};
@@ -733,12 +740,19 @@ function Dashboard() {
     if (Object.keys(errs).length > 0 || Object.keys(rateErrs).length > 0) return;
 
     let newRequests;
+    let balanceAdjustLog = null;
     if (editingId) {
       newRequests = requests.map(r => {
         if (r.id !== editingId) return r;
         const schedule = r.type !== form.type ? buildSlots(form, r.schedule || [], isTokenAccount(r)) : r.schedule;
-        // balance only ever changes via Top Up or a matured deduction sweep, never a plain edit
-        const tokenCount = form.type !== "token" ? slotCountFor(form) : r.tokenCount;
+        // balance only ever changes via Top Up, a matured deduction sweep, or a direct Super
+        // Admin edit on an account here -- never a plain edit otherwise
+        let tokenCount = form.type !== "token" ? slotCountFor(form) : r.tokenCount;
+        if (form.type === "token" && isTokenAccount(r) && isSuperAdmin) {
+          const n = Math.max(0, parseInt(form.tokenCount, 10) || 0);
+          if (n !== (r.tokenCount || 0)) balanceAdjustLog = { client: r.client, city: r.city, refNo: r.refNo, from: r.tokenCount || 0, to: n };
+          tokenCount = n;
+        }
         return { ...r, ...form, tokenCount, schedule };
       });
     } else {
@@ -780,6 +794,9 @@ function Dashboard() {
         ? `Created Active Tokens account for ${form.client} (${form.city}) with starting balance $${(newRequests[newRequests.length - 1].tokenCount || 0).toLocaleString()}`
         : `${editingId ? "Edited" : "Added"} request ${form.refNo} for ${form.client}`;
       logActivity(editingId ? "edit-request" : "add-request", detail);
+      if (balanceAdjustLog) {
+        logActivity("balance-adjust", `Adjusted balance for ${balanceAdjustLog.client} (${balanceAdjustLog.city}) — $${balanceAdjustLog.from.toLocaleString()} → $${balanceAdjustLog.to.toLocaleString()}`);
+      }
       setModalOpen(false);
     } catch (e) {
       console.error("save request failed", e);
@@ -898,7 +915,7 @@ function Dashboard() {
   };
 
   const openTopUp = () => {
-    if (!isSuperAdmin) return;
+    if (!isAdmin) return;
     setTopUpMode("existing");
     setTopUpRequestId("");
     setTopUpAmount("");
@@ -906,7 +923,7 @@ function Dashboard() {
     setTopUpModalOpen(true);
   };
   const goToNewClientTopUp = () => {
-    if (!isSuperAdmin) return;
+    if (!isAdmin) return;
     setTopUpModalOpen(false);
     setForm({ ...emptyForm, type: "token" });
     setEditingId(null);
@@ -918,7 +935,7 @@ function Dashboard() {
     setModalOpen(true);
   };
   const submitTopUp = async () => {
-    if (!isSuperAdmin) return;
+    if (!isAdmin) return;
     if (!topUpRequestId) { setTopUpError("Please select a client / request to top up."); return; }
     const amount = parseInt(topUpAmount, 10);
     if (!Number.isFinite(amount) || amount < 1) { setTopUpError("Enter a top-up amount of 1 or more."); return; }
@@ -1192,15 +1209,15 @@ function Dashboard() {
                   <button onClick={() => setActivityLogOpen(true)} style={{ display: "flex", alignItems: "center", gap: 8, background: "transparent", color: "#E8ECE9", border: "1px solid #262B27", borderRadius: 8, padding: "12px 18px", fontWeight: 600, fontSize: 14 }}>
                     <ListIcon size={16} /> Activity Log
                   </button>
-                  <button onClick={openTopUp} style={{ display: "flex", alignItems: "center", gap: 8, background: "transparent", color: "#6E9FB0", border: "1px solid #6E9FB055", borderRadius: 8, padding: "12px 18px", fontWeight: 600, fontSize: 14 }}>
-                    <Ticket size={16} /> Top Up Tokens
-                  </button>
                 </React.Fragment>
               )}
               {isAdmin && (
                 <React.Fragment>
                   <button onClick={() => setRateChooserOpen(true)} style={{ display: "flex", alignItems: "center", gap: 8, background: "transparent", color: "#4ADE9C", border: "1px solid #4ADE9C55", borderRadius: 8, padding: "12px 18px", fontWeight: 600, fontSize: 14 }}>
                     <Pencil size={16} /> Edit Rate Card
+                  </button>
+                  <button onClick={openTopUp} style={{ display: "flex", alignItems: "center", gap: 8, background: "transparent", color: "#6E9FB0", border: "1px solid #6E9FB055", borderRadius: 8, padding: "12px 18px", fontWeight: 600, fontSize: 14 }}>
+                    <Ticket size={16} /> Top Up Tokens
                   </button>
                   <button onClick={openAdd} style={{ display: "flex", alignItems: "center", gap: 8, background: "#4ADE9C", color: "#0B0E0C", border: "none", borderRadius: 8, padding: "12px 18px", fontWeight: 600, fontSize: 14 }}>
                     <Plus size={16} /> Add Request
@@ -1680,6 +1697,18 @@ function Dashboard() {
             {!includeRateInputs && (
               <Field label="Request date" error={fieldErrors.requestDate}>
                 <TextInput type="date" value={form.requestDate} onChange={v => setForm({ ...form, requestDate: v })} error={!!fieldErrors.requestDate} />
+              </Field>
+            )}
+            {editingAccount && (
+              <Field label="Balance ($)" error={fieldErrors.tokenCount}>
+                <input type="number" min="0" value={form.tokenCount} disabled={!isSuperAdmin}
+                  onChange={e => setForm({ ...form, tokenCount: e.target.value })}
+                  style={fieldErrors.tokenCount ? { ...inputStyle, border: "1px solid #F2545B" } : { ...inputStyle, opacity: isSuperAdmin ? 1 : 0.6, cursor: isSuperAdmin ? "text" : "not-allowed" }} />
+                {!isSuperAdmin && (
+                  <div className="mono" style={{ fontSize: 10.5, color: "#8B948E", marginTop: 6 }}>
+                    Only Super Admin can adjust this balance directly. Use Top Up Tokens to add to it.
+                  </div>
+                )}
               </Field>
             )}
             {!includeRateInputs && !editingAccount && (
