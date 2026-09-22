@@ -174,6 +174,17 @@ function downloadCsv(filename, rows) {
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
 }
+function downloadJson(filename, data) {
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
 
 const emptyForm = {
   refNo: "",
@@ -363,6 +374,10 @@ function Dashboard() {
   const lastActivitySyncedRef = useRef("");
   const lastPresenceSyncedRef = useRef("");
   const loggedInOnceRef = useRef(false);
+  const importFileRef = useRef(null);
+  const [importPending, setImportPending] = useState(null);
+  const [importError, setImportError] = useState("");
+  const [importBusy, setImportBusy] = useState(false);
 
   // establish and track the Supabase Auth session
   useEffect(() => {
@@ -1064,6 +1079,65 @@ function Dashboard() {
     logActivity("export-csv", `Exported ${rows.length} request${rows.length === 1 ? "" : "s"} to CSV`);
   };
 
+  const exportDataJson = () => {
+    if (!isSuperAdmin) return;
+    const payload = {
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      exportedBy: currentUser ? fullName(currentUser) : "",
+      requests, rateCard, clientsList, activity
+    };
+    downloadJson(`adhoc-token-backup-${todayStr()}.json`, payload);
+    logActivity("export-json", `Exported full data backup (${requests.length} requests, ${rateCard.length} rate entries)`);
+  };
+  const handleImportFileChange = async e => {
+    if (!isSuperAdmin) return;
+    const file = e.target.files && e.target.files[0];
+    e.target.value = "";
+    if (!file) return;
+    setImportError("");
+    try {
+      const text = await file.text();
+      const data = JSON.parse(text);
+      if (!data || !Array.isArray(data.requests) || !Array.isArray(data.rateCard)) {
+        setImportError("This doesn't look like a valid backup file.");
+        return;
+      }
+      setImportPending(data);
+    } catch (err) {
+      setImportError("Could not read that file — make sure it's a backup JSON exported from this app.");
+    }
+  };
+  const confirmImport = async () => {
+    if (!isSuperAdmin || !importPending) return;
+    setImportBusy(true);
+    try {
+      const newRequests = Array.isArray(importPending.requests) ? importPending.requests : requests;
+      const newRateCard = Array.isArray(importPending.rateCard) ? importPending.rateCard : rateCard;
+      const newClientsList = Array.isArray(importPending.clientsList) ? importPending.clientsList : clientsList;
+      const newActivity = Array.isArray(importPending.activity) ? importPending.activity : activity;
+      await kvSet(KV_REQUESTS, newRequests);
+      await kvSet(KV_RATE_CARD, newRateCard);
+      await kvSet(KV_CLIENTS, newClientsList);
+      await kvSet(KV_ACTIVITY, newActivity);
+      setRequests(newRequests);
+      lastSyncedRef.current = JSON.stringify(newRequests);
+      setRateCard(newRateCard);
+      lastRateSyncedRef.current = JSON.stringify(newRateCard);
+      setClientsList(newClientsList);
+      lastClientsSyncedRef.current = JSON.stringify(newClientsList);
+      setActivity(newActivity);
+      lastActivitySyncedRef.current = JSON.stringify(newActivity);
+      logActivity("import-json", `Restored data backup from ${importPending.exportedAt || "unknown date"} (${newRequests.length} requests, ${newRateCard.length} rate entries)`);
+      setImportPending(null);
+    } catch (err) {
+      console.error("import failed", err);
+      setImportError("Could not restore backup — check your connection and try again.");
+    } finally {
+      setImportBusy(false);
+    }
+  };
+
   if (!authReady) {
     return (
       <div style={{ minHeight: "100vh", background: "#0B0E0C", display: "flex", alignItems: "center", justifyContent: "center", color: "#8B948E", fontFamily: "'Space Grotesk', sans-serif" }}>
@@ -1224,6 +1298,13 @@ function Dashboard() {
                   <button onClick={() => setActivityLogOpen(true)} style={{ display: "flex", alignItems: "center", gap: 8, background: "transparent", color: "#E8ECE9", border: "1px solid #262B27", borderRadius: 8, padding: "12px 18px", fontWeight: 600, fontSize: 14 }}>
                     <ListIcon size={16} /> Activity Log
                   </button>
+                  <button onClick={exportDataJson} style={{ display: "flex", alignItems: "center", gap: 8, background: "transparent", color: "#E8ECE9", border: "1px solid #262B27", borderRadius: 8, padding: "12px 18px", fontWeight: 600, fontSize: 14 }}>
+                    <Download size={16} /> Export Data
+                  </button>
+                  <button onClick={() => importFileRef.current && importFileRef.current.click()} style={{ display: "flex", alignItems: "center", gap: 8, background: "transparent", color: "#E8ECE9", border: "1px solid #262B27", borderRadius: 8, padding: "12px 18px", fontWeight: 600, fontSize: 14 }}>
+                    <span style={{ display: "flex", transform: "rotate(180deg)" }}><Download size={16} /></span> Import Data
+                  </button>
+                  <input type="file" accept="application/json" ref={importFileRef} onChange={handleImportFileChange} style={{ display: "none" }} />
                 </React.Fragment>
               )}
               {isAdmin && (
@@ -1830,6 +1911,34 @@ function Dashboard() {
               {saving ? "Deleting…" : "Delete"}
             </button>
             <button onClick={() => setConfirmDelete(null)} disabled={saving} style={{ background: "transparent", color: "#8B948E", border: "1px solid #262B27", borderRadius: 8, padding: "11px 18px", fontSize: 14 }}>Cancel</button>
+          </div>
+        </Modal>
+      )}
+
+      {(importPending || importError) && (
+        <Modal onClose={() => { setImportPending(null); setImportError(""); }} narrow>
+          <h2 style={{ margin: "0 0 10px", fontSize: 16, fontWeight: 700 }}>{importPending ? "Restore this backup?" : "Could not import"}</h2>
+          {importPending && (
+            <React.Fragment>
+              <p style={{ color: "#8B948E", fontSize: 13, margin: "0 0 12px" }}>
+                This replaces ALL current requests, rate card, clients, and activity log with the contents of this file. This can't be undone.
+              </p>
+              <div className="mono" style={{ fontSize: 11.5, color: "#6E9FB0", background: "#0B0E0C", border: "1px solid #1E2320", borderRadius: 8, padding: 12, marginBottom: 16 }}>
+                Backup from: {importPending.exportedAt ? fmtShort(importPending.exportedAt.slice(0, 10)) : "unknown date"}<br />
+                {(importPending.requests || []).length} requests · {(importPending.rateCard || []).length} rate entries · {(importPending.clientsList || []).length} clients
+              </div>
+            </React.Fragment>
+          )}
+          {importError && <div style={{ color: "#F2545B", fontSize: 12.5, marginBottom: 12 }}>{importError}</div>}
+          <div style={{ display: "flex", gap: 10 }}>
+            {importPending && (
+              <button onClick={confirmImport} disabled={importBusy} style={{ flex: 1, background: "#F2545B", color: "#0B0E0C", border: "none", borderRadius: 8, padding: "11px 0", fontWeight: 600, fontSize: 14, opacity: importBusy ? 0.6 : 1 }}>
+                {importBusy ? "Restoring…" : "Restore Backup"}
+              </button>
+            )}
+            <button onClick={() => { setImportPending(null); setImportError(""); }} disabled={importBusy} style={{ background: "transparent", color: "#8B948E", border: "1px solid #262B27", borderRadius: 8, padding: "11px 18px", fontSize: 14, flex: importPending ? "0 0 auto" : 1 }}>
+              {importPending ? "Cancel" : "Close"}
+            </button>
           </div>
         </Modal>
       )}
