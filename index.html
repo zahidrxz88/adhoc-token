@@ -314,6 +314,8 @@ function Dashboard() {
   const [rateSaveError, setRateSaveError] = useState("");
   const [confirmDeleteRate, setConfirmDeleteRate] = useState(null);
   const [rateChooserOpen, setRateChooserOpen] = useState(false);
+  const [filterRegion, setFilterRegion] = useState("");
+  const [sectionFilters, setSectionFilters] = useState({ upcoming: true, open: true, closed: true, active: true, rate: true });
   const [includeRateInputs, setIncludeRateInputs] = useState(false);
   const [rateInputs, setRateInputs] = useState(emptyRateInputs);
   const [rateInputErrors, setRateInputErrors] = useState({});
@@ -990,29 +992,42 @@ function Dashboard() {
         });
       });
     });
-    return items.sort((a, b) => a.date < b.date ? -1 : 1).slice(0, 2);
-  }, [enriched]);
+    return items.filter(item => !filterRegion || (item.region || "").toLowerCase() === filterRegion.toLowerCase())
+      .sort((a, b) => a.date < b.date ? -1 : 1).slice(0, 2);
+  }, [enriched, filterRegion]);
 
   const isJobRequest = r => (r.type === "adhoc" && r.remaining > 0) || (r.type === "token" && !isTokenAccount(r));
   const isPastDue = r => r.requestDate < todayStr();
+  const matchesRegion = r => !filterRegion || (r.region || "").toLowerCase() === filterRegion.toLowerCase();
+
+  const allRegionsList = useMemo(() => {
+    const set = new Set();
+    requests.forEach(r => { if (r.region) set.add(r.region); });
+    rateCard.forEach(r => { if (r.region) set.add(r.region); });
+    return [...set].sort();
+  }, [requests, rateCard]);
+
+  const filteredRateCard = useMemo(() =>
+    filterRegion ? rateCard.filter(r => (r.region || "").toLowerCase() === filterRegion.toLowerCase()) : rateCard,
+  [rateCard, filterRegion]);
 
   const openRequests = useMemo(() =>
-    enriched.filter(r => isJobRequest(r) && !isPastDue(r))
+    enriched.filter(r => isJobRequest(r) && !isPastDue(r) && matchesRegion(r))
       .sort((a, b) => a.requestDate < b.requestDate ? 1 : a.requestDate > b.requestDate ? -1 : 0),
-  [enriched]);
+  [enriched, filterRegion]);
   const closedRequests = useMemo(() =>
-    enriched.filter(r => isJobRequest(r) && isPastDue(r))
+    enriched.filter(r => isJobRequest(r) && isPastDue(r) && matchesRegion(r))
       .sort((a, b) => a.requestDate < b.requestDate ? 1 : a.requestDate > b.requestDate ? -1 : 0),
-  [enriched]);
+  [enriched, filterRegion]);
   const activeTokenRequests = useMemo(() =>
-    enriched.filter(isTokenAccount).sort((a, b) => a.requestDate < b.requestDate ? 1 : a.requestDate > b.requestDate ? -1 : 0),
-  [enriched]);
+    enriched.filter(r => isTokenAccount(r) && matchesRegion(r)).sort((a, b) => a.requestDate < b.requestDate ? 1 : a.requestDate > b.requestDate ? -1 : 0),
+  [enriched, filterRegion]);
 
   const stats = useMemo(() => {
-    const open = enriched.filter(r => isJobRequest(r) && !isPastDue(r)).length;
-    const activeTokens = enriched.filter(isTokenAccount).length;
+    const open = enriched.filter(r => isJobRequest(r) && !isPastDue(r) && matchesRegion(r)).length;
+    const activeTokens = enriched.filter(r => isTokenAccount(r) && matchesRegion(r)).length;
     return { open, activeTokens };
-  }, [enriched]);
+  }, [enriched, filterRegion]);
 
   const onlineUsers = useMemo(() => {
     const now = Date.now();
@@ -1237,7 +1252,32 @@ function Dashboard() {
       </div>
 
       <div style={{ maxWidth: 1180, margin: "0 auto", padding: "32px" }}>
-        {isUser && (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 28 }}>
+          <select value={filterRegion} onChange={e => setFilterRegion(e.target.value)}
+            className="mono"
+            style={{ ...selectStyle, width: "auto", textTransform: "uppercase", fontSize: 12, fontWeight: 600, padding: "10px 14px", letterSpacing: 0.3 }}>
+            <option value="">REGION: ALL</option>
+            {allRegionsList.map(r => <option key={r} value={r}>{r.toUpperCase()}</option>)}
+          </select>
+          {[
+            ["upcoming", "UPCOMING VISIT"],
+            ["open", "OPEN REQUEST"],
+            ["closed", "CLOSED REQUEST"],
+            ["active", "ACTIVE TOKENS"],
+            ["rate", "RATE CARD"]
+          ].map(([key, label]) => (
+            <button key={key} type="button" onClick={() => setSectionFilters(f => ({ ...f, [key]: !f[key] }))}
+              className="mono"
+              style={{
+                padding: "10px 14px", borderRadius: 8, fontWeight: 600, fontSize: 12, letterSpacing: 0.3,
+                border: sectionFilters[key] ? "1px solid #4ADE9C" : "1px solid #262B27",
+                background: sectionFilters[key] ? "#4ADE9C22" : "transparent",
+                color: sectionFilters[key] ? "#4ADE9C" : "#8B948E"
+              }}>{label}</button>
+          ))}
+        </div>
+
+        {isUser && sectionFilters.upcoming && (
           <section style={{ marginBottom: 40 }}>
             <SectionHeader title="Upcoming Visits" sub="Next scheduled, across all requests" />
             {upcomingFeed.length === 0 ? (
@@ -1268,6 +1308,7 @@ function Dashboard() {
           </section>
         )}
 
+        {sectionFilters.open && (
         <section>
           <SectionHeader title="Open Requests" sub={`${openRequests.length} on file`} />
           {openRequests.length === 0 ? (
@@ -1281,7 +1322,9 @@ function Dashboard() {
             </div>
           )}
         </section>
+        )}
 
+        {sectionFilters.closed && (
         <section style={{ marginTop: 40 }}>
           <SectionHeader title="Closed Requests" sub={`${closedRequests.length} on file`} />
           {closedRequests.length === 0 ? (
@@ -1295,7 +1338,9 @@ function Dashboard() {
             </div>
           )}
         </section>
+        )}
 
+        {sectionFilters.active && (
         <section style={{ marginTop: 40 }}>
           <SectionHeader title="Active Tokens" sub={`${activeTokenRequests.length} on file`} />
           {activeTokenRequests.length === 0 ? (
@@ -1309,22 +1354,24 @@ function Dashboard() {
             </div>
           )}
         </section>
+        )}
 
+        {sectionFilters.rate && (
         <section style={{ marginTop: 40 }}>
           {(() => {
-            const clientCount = new Set(rateCard.map(r => r.client)).size;
+            const clientCount = new Set(filteredRateCard.map(r => r.client)).size;
             return (
-              <SectionHeader title="Rate Card" sub={`${clientCount} client${clientCount === 1 ? "" : "s"} · ${rateCard.length} cit${rateCard.length === 1 ? "y" : "ies"} on file`} />
+              <SectionHeader title="Rate Card" sub={`${clientCount} client${clientCount === 1 ? "" : "s"} · ${filteredRateCard.length} cit${filteredRateCard.length === 1 ? "y" : "ies"} on file`} />
             );
           })()}
           <div className="mono" style={{ fontSize: 11, color: "#8B948E", marginBottom: 14 }}>
             Rates are matched by client + city and feed the estimated cost on token requests. Use Edit Rate Card → Add Rate to add another city for an existing client, or Top Up Tokens → New Client to onboard a brand new client.
           </div>
-          {rateCard.length === 0 ? (
+          {filteredRateCard.length === 0 ? (
             <EmptyRow text="No rates on file yet." />
           ) : (
             <div style={{ display: "grid", gap: 16 }}>
-              {Object.entries(rateCard.reduce((acc, r) => { (acc[r.client] = acc[r.client] || []).push(r); return acc; }, {})).map(([client, rates]) => (
+              {Object.entries(filteredRateCard.reduce((acc, r) => { (acc[r.client] = acc[r.client] || []).push(r); return acc; }, {})).map(([client, rates]) => (
                 <div key={client} style={{ border: "1px solid #1E2320", borderRadius: 10, overflow: "hidden" }}>
                   <div style={{ padding: "10px 16px", background: "#12181580", fontWeight: 700, fontSize: 14 }}>{client}</div>
                   {rates.map((rate, i) => (
@@ -1362,6 +1409,7 @@ function Dashboard() {
             </div>
           )}
         </section>
+        )}
       </div>
 
       {rateModalOpen && (
